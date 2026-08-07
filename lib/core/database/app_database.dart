@@ -169,6 +169,9 @@ class Sales extends Table {
   RealColumn get taxTotal => real().withDefault(const Constant(0))();
   RealColumn get grandTotal => real().withDefault(const Constant(0))();
   RealColumn get paidAmount => real().withDefault(const Constant(0))();
+  TextColumn get paymentMethod => text().withDefault(const Constant('cash'))();
+  RealColumn get cashAmount => real().withDefault(const Constant(0))();
+  RealColumn get cardAmount => real().withDefault(const Constant(0))();
   DateTimeColumn get soldAt => dateTime().withDefault(currentDateAndTime)();
 }
 

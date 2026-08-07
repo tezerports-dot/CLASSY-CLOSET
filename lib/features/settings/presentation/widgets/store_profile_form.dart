@@ -24,6 +24,7 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
   late final TextEditingController _taxRegistrationNumber;
   late final TextEditingController _currencySymbol;
   late final TextEditingController _receiptFooterText;
+  late final TextEditingController _receiptNumberPrefix;
   String? _logoPath;
 
   @override
@@ -37,12 +38,13 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
     _taxRegistrationNumber = TextEditingController(text: profile?.taxRegistrationNumber ?? '');
     _currencySymbol = TextEditingController(text: profile?.currencySymbol ?? r'$');
     _receiptFooterText = TextEditingController(text: profile?.receiptFooterText ?? 'Thank you for shopping with us.');
+    _receiptNumberPrefix = TextEditingController(text: profile?.receiptNumberPrefix ?? '');
     _logoPath = profile?.logoPath;
   }
 
   @override
   void dispose() {
-    for (final controller in [_storeName, _address, _phone, _email, _taxRegistrationNumber, _currencySymbol, _receiptFooterText]) {
+    for (final controller in [_storeName, _address, _phone, _email, _taxRegistrationNumber, _currencySymbol, _receiptFooterText, _receiptNumberPrefix]) {
       controller.dispose();
     }
     super.dispose();
@@ -65,6 +67,7 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
           _field(_address, 'Address', maxLines: 3),
           Row(children: [Expanded(child: _field(_phone, 'Phone')), const SizedBox(width: 12), Expanded(child: _field(_currencySymbol, 'Currency symbol', validator: Validators.requiredText))]),
           Row(children: [Expanded(child: _field(_email, 'Email')), const SizedBox(width: 12), Expanded(child: _field(_taxRegistrationNumber, 'Tax / registration number'))]),
+          _field(_receiptNumberPrefix, 'Receipt number prefix (optional)'),
           _field(_receiptFooterText, 'Receipt footer text', maxLines: 2),
           OutlinedButton.icon(onPressed: _pickLogo, icon: const Icon(Icons.image), label: Text(_logoPath == null ? 'Choose logo' : 'Change logo')),
           const SizedBox(height: 16),
@@ -86,7 +89,7 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    await widget.store.saveStoreProfile(StoreProfile(storeName: _storeName.text.trim(), logoPath: _logoPath, address: _address.text.trim(), phone: _phone.text.trim(), email: _email.text.trim(), taxRegistrationNumber: _taxRegistrationNumber.text.trim(), currencySymbol: _currencySymbol.text.trim(), receiptFooterText: _receiptFooterText.text.trim()));
+    await widget.store.saveStoreProfile(StoreProfile(storeName: _storeName.text.trim(), logoPath: _logoPath, address: _address.text.trim(), phone: _phone.text.trim(), email: _email.text.trim(), taxRegistrationNumber: _taxRegistrationNumber.text.trim(), currencySymbol: _currencySymbol.text.trim(), receiptFooterText: _receiptFooterText.text.trim(), receiptNumberPrefix: _receiptNumberPrefix.text.trim()));
     widget.onSaved();
   }
 }
