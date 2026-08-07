@@ -21,7 +21,7 @@ class AppUser {
 }
 
 class StoreProfile {
-  const StoreProfile({required this.storeName, required this.currencySymbol, this.logoPath, this.address, this.phone, this.email, this.taxRegistrationNumber, this.receiptFooterText});
+  const StoreProfile({required this.storeName, required this.currencySymbol, this.logoPath, this.address, this.phone, this.email, this.taxRegistrationNumber, this.receiptFooterText, this.receiptNumberPrefix = ''});
 
   final String storeName;
   final String currencySymbol;
@@ -31,6 +31,7 @@ class StoreProfile {
   final String? email;
   final String? taxRegistrationNumber;
   final String? receiptFooterText;
+  final String receiptNumberPrefix;
 
   Map<String, dynamic> toJson() => {
         'storeName': storeName,
@@ -41,6 +42,7 @@ class StoreProfile {
         'email': email,
         'taxRegistrationNumber': taxRegistrationNumber,
         'receiptFooterText': receiptFooterText,
+        'receiptNumberPrefix': receiptNumberPrefix,
       };
 
   factory StoreProfile.fromJson(Map<String, dynamic> json) => StoreProfile(
@@ -52,6 +54,7 @@ class StoreProfile {
         email: json['email'] as String?,
         taxRegistrationNumber: json['taxRegistrationNumber'] as String?,
         receiptFooterText: json['receiptFooterText'] as String?,
+        receiptNumberPrefix: (json['receiptNumberPrefix'] as String? ?? '').trim(),
       );
 }
 
@@ -328,11 +331,12 @@ class RetailStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<SaleRecord> checkout({CustomerRecord? customer, double paid = 0}) async {
+  Future<SaleRecord> checkout({CustomerRecord? customer, double paid = 0, String paymentMethod = 'cash', double cashAmount = 0, double cardAmount = 0}) async {
     final snapshot = List<CartLine>.from(cart);
     final total = snapshot.fold(0.0, (sum, line) => sum + line.total);
     final profit = snapshot.fold(0.0, (sum, line) => sum + line.profit);
-    final receipt = 'R-${DateTime.now().millisecondsSinceEpoch}';
+    final receiptPrefix = storeProfile?.receiptNumberPrefix.trim().isNotEmpty == true ? storeProfile!.receiptNumberPrefix.trim() : 'R';
+    final receipt = '$receiptPrefix-${DateTime.now().millisecondsSinceEpoch}';
     late SaleRecord sale;
     await _db.transaction(() async {
       final saleId = await _db.into(_db.sales).insert(SalesCompanion.insert(
@@ -342,6 +346,9 @@ class RetailStore extends ChangeNotifier {
             subtotal: Value(total),
             grandTotal: Value(total),
             paidAmount: Value(paid),
+            paymentMethod: Value(paymentMethod),
+            cashAmount: Value(cashAmount),
+            cardAmount: Value(cardAmount),
           ));
       for (final line in snapshot) {
         await _db.into(_db.saleItems).insert(SaleItemsCompanion.insert(saleId: saleId, productId: line.product.id, quantity: line.quantity.toDouble(), unitPrice: line.product.sellingPrice, lineTotal: line.total));
