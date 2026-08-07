@@ -62,7 +62,7 @@ class PosPage extends StatelessWidget {
                         trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => store.removeFromCart(line)),
                       ),
                     const Divider(),
-                    SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: store.cart.isEmpty ? null : () => store.checkout(customer: store.customers.first, paid: total), icon: const Icon(Icons.receipt), label: const Text('Checkout cash sale'))),
+                    SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: store.cart.isEmpty ? null : () async => store.checkout(customer: store.customers.isEmpty ? null : store.customers.first, paid: total), icon: const Icon(Icons.receipt), label: const Text('Checkout cash sale'))),
                   ]),
                 ),
               ),

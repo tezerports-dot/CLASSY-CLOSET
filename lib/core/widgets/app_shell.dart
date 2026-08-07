@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -32,8 +34,8 @@ class _AppShellState extends State<AppShell> {
               child: Column(
                 children: [
                   ListTile(
-                    leading: const Icon(Icons.storefront, color: Colors.white),
-                    title: _collapsed ? null : const Text('RetailPro', style: TextStyle(color: Colors.white)),
+                    leading: _store.storeProfile?.logoPath == null || !File(_store.storeProfile!.logoPath!).existsSync() ? const Icon(Icons.storefront, color: Colors.white) : Image.file(File(_store.storeProfile!.logoPath!), width: 28, height: 28, fit: BoxFit.contain),
+                    title: _collapsed ? null : Text(_store.displayStoreName, style: const TextStyle(color: Colors.white)),
                     trailing: IconButton(
                       onPressed: () => setState(() => _collapsed = !_collapsed),
                       icon: Icon(_collapsed ? Icons.chevron_right : Icons.chevron_left, color: Colors.white70),
@@ -53,7 +55,7 @@ class _AppShellState extends State<AppShell> {
                       ],
                     ),
                   ),
-                  _NavItem(collapsed: _collapsed, icon: Icons.logout, label: 'Logout', route: '/login', onTap: (_) => _store.logout()),
+                  _NavItem(collapsed: _collapsed, icon: Icons.logout, label: 'Logout', route: '/login', onTap: (_) async => _store.logout()),
                 ],
               ),
             ),

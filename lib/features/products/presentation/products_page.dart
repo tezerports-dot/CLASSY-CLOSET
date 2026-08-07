@@ -4,6 +4,7 @@ import '../../../app/di/injection.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/section_card.dart';
+import 'widgets/product_form_dialog.dart';
 
 class ProductsPage extends StatefulWidget {
   const ProductsPage({super.key});
@@ -27,7 +28,7 @@ class _ProductsPageState extends State<ProductsPage> {
           padding: const EdgeInsets.all(24),
           child: SectionCard(
             title: 'Products',
-            actions: [FilledButton.icon(onPressed: _addSample, icon: const Icon(Icons.add), label: const Text('Add sample'))],
+            actions: [FilledButton.icon(onPressed: () => _openForm(), icon: const Icon(Icons.add), label: const Text('Add product'))],
             child: Column(
               children: [
                 TextField(controller: _search, onChanged: (_) => setState(() {}), decoration: const InputDecoration(prefixIcon: Icon(Icons.search), labelText: 'Search by SKU, barcode, name, category or brand')),
@@ -46,9 +47,9 @@ class _ProductsPageState extends State<ProductsPage> {
                     ],
                     rows: [
                       for (final p in rows)
-                        DataRow(color: p.lowStock ? MaterialStateProperty.all(Colors.orange.withOpacity(.08)) : null, cells: [
+                        DataRow(color: p.lowStock ? WidgetStateProperty.all(Colors.orange.withOpacity(.08)) : null, cells: [
                           DataCell(Text(p.sku)),
-                          DataCell(Text(p.name)),
+                          DataCell(InkWell(onTap: () => _openForm(p), child: Text(p.name))),
                           DataCell(Text('${p.category} / ${p.brand}')),
                           DataCell(Text('${p.stock.toStringAsFixed(0)} ${p.unit}')),
                           DataCell(Text(p.minimumStock.toStringAsFixed(0))),
@@ -66,8 +67,7 @@ class _ProductsPageState extends State<ProductsPage> {
     );
   }
 
-  void _addSample() {
-    final id = _store.products.length + 1;
-    _store.addProduct(ProductRecord(id: id, sku: 'SKU-${1000 + id}', name: 'New Product $id', category: 'General', brand: 'Classy', unit: 'pcs', stock: 10, minimumStock: 3, purchasePrice: 10, sellingPrice: 18, barcode: '89010000$id', location: 'NEW'));
+  Future<void> _openForm([ProductRecord? product]) async {
+    await showDialog<void>(context: context, builder: (_) => ProductFormDialog(store: _store, product: product));
   }
 }

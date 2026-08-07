@@ -6,5 +6,5 @@ import 'app/di/injection.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await configureDependencies();
-  runApp(const RetailProApp());
+  runApp(const WhiteLabelPosApp());
 }

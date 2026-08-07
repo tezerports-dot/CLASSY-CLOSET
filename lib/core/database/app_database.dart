@@ -18,18 +18,21 @@ class Users extends Table {
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+@DataClassName('RoleRow')
 class Roles extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text().unique().withLength(min: 2, max: 48)();
   TextColumn get description => text().nullable()();
 }
 
+@DataClassName('PermissionRow')
 class Permissions extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get code => text().unique().withLength(min: 3, max: 80)();
   TextColumn get description => text().nullable()();
 }
 
+@DataClassName('RolePermissionRow')
 class RolePermissions extends Table {
   IntColumn get roleId => integer().references(Roles, #id, onDelete: KeyAction.cascade)();
   IntColumn get permissionId => integer().references(Permissions, #id, onDelete: KeyAction.cascade)();
@@ -38,6 +41,7 @@ class RolePermissions extends Table {
   Set<Column> get primaryKey => {roleId, permissionId};
 }
 
+@DataClassName('CategoryRow')
 class Categories extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get parentId => integer().nullable().references(Categories, #id)();
@@ -47,6 +51,7 @@ class Categories extends Table {
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
 }
 
+@DataClassName('BrandRow')
 class Brands extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text().unique().withLength(min: 1, max: 100)();
@@ -54,6 +59,7 @@ class Brands extends Table {
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
 }
 
+@DataClassName('UnitRow')
 class Units extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text().unique().withLength(min: 1, max: 40)();
@@ -61,6 +67,7 @@ class Units extends Table {
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
 }
 
+@DataClassName('SupplierRow')
 class Suppliers extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text().withLength(min: 1, max: 140)();
@@ -68,9 +75,11 @@ class Suppliers extends Table {
   TextColumn get email => text().nullable()();
   TextColumn get address => text().nullable()();
   RealColumn get openingBalance => real().withDefault(const Constant(0))();
+  RealColumn get currentBalance => real().withDefault(const Constant(0))();
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
 }
 
+@DataClassName('ProductRow')
 class Products extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get sku => text().unique().withLength(min: 1, max: 64)();
@@ -94,6 +103,7 @@ class Products extends Table {
   BoolColumn get isActive => boolean().withDefault(const Constant(true))();
 }
 
+@DataClassName('ProductImageRow')
 class ProductImages extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get productId => integer().references(Products, #id, onDelete: KeyAction.cascade)();
@@ -101,6 +111,7 @@ class ProductImages extends Table {
   BoolColumn get isPrimary => boolean().withDefault(const Constant(false))();
 }
 
+@DataClassName('CustomerRow')
 class Customers extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text().withLength(min: 1, max: 140)();
@@ -109,9 +120,11 @@ class Customers extends Table {
   TextColumn get address => text().nullable()();
   RealColumn get creditLimit => real().withDefault(const Constant(0))();
   RealColumn get openingBalance => real().withDefault(const Constant(0))();
+  RealColumn get currentBalance => real().withDefault(const Constant(0))();
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
 }
 
+@DataClassName('InventoryMovementRow')
 class InventoryMovements extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get productId => integer().references(Products, #id)();
@@ -122,6 +135,7 @@ class InventoryMovements extends Table {
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+@DataClassName('PurchaseRow')
 class Purchases extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get supplierId => integer().references(Suppliers, #id)();
@@ -133,6 +147,7 @@ class Purchases extends Table {
   DateTimeColumn get purchasedAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+@DataClassName('PurchaseItemRow')
 class PurchaseItems extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get purchaseId => integer().references(Purchases, #id, onDelete: KeyAction.cascade)();
@@ -143,6 +158,7 @@ class PurchaseItems extends Table {
   RealColumn get lineTotal => real()();
 }
 
+@DataClassName('SaleRow')
 class Sales extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get customerId => integer().nullable().references(Customers, #id)();
@@ -156,6 +172,7 @@ class Sales extends Table {
   DateTimeColumn get soldAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+@DataClassName('SaleItemRow')
 class SaleItems extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get saleId => integer().references(Sales, #id, onDelete: KeyAction.cascade)();
@@ -167,6 +184,7 @@ class SaleItems extends Table {
   RealColumn get lineTotal => real()();
 }
 
+@DataClassName('ReturnRow')
 class Returns extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get saleId => integer().nullable().references(Sales, #id)();
@@ -176,6 +194,7 @@ class Returns extends Table {
   DateTimeColumn get returnedAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+@DataClassName('ReturnItemRow')
 class ReturnItems extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get returnId => integer().references(Returns, #id, onDelete: KeyAction.cascade)();
@@ -184,12 +203,14 @@ class ReturnItems extends Table {
   RealColumn get refundAmount => real()();
 }
 
+@DataClassName('ExpenseCategoryRow')
 class ExpenseCategories extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text().unique()();
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
 }
 
+@DataClassName('ExpenseRow')
 class Expenses extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get categoryId => integer().references(ExpenseCategories, #id)();
@@ -199,6 +220,7 @@ class Expenses extends Table {
   DateTimeColumn get spentAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+@DataClassName('CashBookRow')
 class CashBook extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get entryType => text()();
@@ -207,6 +229,7 @@ class CashBook extends Table {
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+@DataClassName('BankBookRow')
 class BankBook extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get accountName => text()();
@@ -216,6 +239,7 @@ class BankBook extends Table {
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+@DataClassName('LedgerEntryRow')
 class LedgerEntries extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get accountType => text()();
@@ -227,6 +251,7 @@ class LedgerEntries extends Table {
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+@DataClassName('AuditLogRow')
 class AuditLogs extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get userId => integer().nullable().references(Users, #id)();
@@ -237,6 +262,7 @@ class AuditLogs extends Table {
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+@DataClassName('SettingRow')
 class Settings extends Table {
   TextColumn get key => text()();
   TextColumn get valueJson => text()();
@@ -291,7 +317,7 @@ class AppDatabase extends _$AppDatabase {
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final directory = await getApplicationSupportDirectory();
-    final dbFolder = Directory(p.join(directory.path, 'RetailPro'));
+    final dbFolder = Directory(p.join(directory.path, 'ClassyCloset'));
     if (!dbFolder.existsSync()) {
       dbFolder.createSync(recursive: true);
     }
