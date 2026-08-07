@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/di/injection.dart';
@@ -36,7 +38,11 @@ class _LoginPageState extends State<LoginPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('RetailPro Login', style: Theme.of(context).textTheme.headlineMedium),
+                  if (_store.storeProfile?.logoPath != null && File(_store.storeProfile!.logoPath!).existsSync()) ...[
+                    Image.file(File(_store.storeProfile!.logoPath!), height: 72),
+                    const SizedBox(height: 16),
+                  ],
+                  Text('${_store.displayStoreName} Login', style: Theme.of(context).textTheme.headlineMedium),
                   const SizedBox(height: 8),
                   const Text('Offline admin access seeded on first run.'),
                   const SizedBox(height: 24),
@@ -60,8 +66,9 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  void _submit() {
-    if (!_store.login(_username.text, _password.text)) {
+  Future<void> _submit() async {
+    final ok = await _store.login(_username.text, _password.text);
+    if (!ok && mounted) {
       setState(() => _error = 'Invalid username or password');
     }
   }
