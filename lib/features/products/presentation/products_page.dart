@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../app/di/injection.dart';
+import '../../../core/services/permissions.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/section_card.dart';
@@ -24,6 +25,10 @@ class _ProductsPageState extends State<ProductsPage> {
   /// so that is the default view; the unit list is there for looking up one
   /// specific size or barcode.
   bool _showUnits = false;
+
+  /// Staff without edit rights get a read-only catalogue: they can look a
+  /// price or a size up, but not change one.
+  bool get _canEdit => _store.can(Permission.editProducts);
 
   @override
   void dispose() {
@@ -58,12 +63,14 @@ class _ProductsPageState extends State<ProductsPage> {
                 onSelectionChanged: (s) =>
                     setState(() => _showUnits = s.single),
               ),
-              const SizedBox(width: 12),
-              FilledButton.icon(
-                onPressed: () => _openStyleForm(),
-                icon: const Icon(Icons.add),
-                label: const Text('Add design'),
-              ),
+              if (_canEdit) ...[
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  onPressed: () => _openStyleForm(),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add design'),
+                ),
+              ],
             ],
             child: Column(
               children: [
@@ -117,7 +124,7 @@ class _ProductsPageState extends State<ProductsPage> {
             child: Card(
               clipBehavior: Clip.antiAlias,
               child: InkWell(
-                onTap: () => _openStyleForm(style),
+                onTap: _canEdit ? () => _openStyleForm(style) : null,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [

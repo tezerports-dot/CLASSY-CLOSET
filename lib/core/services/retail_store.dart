@@ -10,8 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../database/app_database.dart';
 import '../utils/formatters.dart';
 import 'gst.dart';
-
-enum UserRole { admin, manager, cashier, storeKeeper, sales }
+import 'permissions.dart';
 
 class AppUser {
   const AppUser({
@@ -19,11 +18,16 @@ class AppUser {
     required this.name,
     required this.username,
     required this.role,
+    this.isActive = true,
   });
   final int id;
   final String name;
   final String username;
-  final UserRole role;
+  final AppRole role;
+  final bool isActive;
+
+  Set<Permission> get permissions => permissionsFor(role);
+  bool can(Permission permission) => permissions.contains(permission);
 }
 
 class StoreProfile {
@@ -474,6 +478,7 @@ class RetailStore extends ChangeNotifier {
       _loadCustomers(),
       _loadSales(),
       _loadAuditLogs(),
+      _loadUsers(),
     ]);
     _rebuildStyles();
     notifyListeners();
@@ -499,6 +504,159 @@ class RetailStore extends ChangeNotifier {
     await _audit('AUTH', 'users', row.id, 'Signed in as $normalized');
     notifyListeners();
     return true;
+  }
+
+  /// Whether the signed-in user may do [permission].
+  ///
+  /// No one signed in means no, so a guard that runs before login fails closed.
+  bool can(Permission permission) => currentUser?.can(permission) ?? false;
+
+  /// Everyone with a login, for the staff screen.
+  final users = <AppUser>[];
+
+  Future<void> _loadUsers() async {
+    final roles = {
+      for (final r in await _db.select(_db.roles).get()) r.id: r.name,
+    };
+    final rows = await _db.select(_db.users).get();
+    users
+      ..clear()
+      ..addAll(
+        rows.map(
+          (u) => AppUser(
+            id: u.id,
+            name: u.fullName,
+            username: u.username,
+            role: AppRole.fromName(roles[u.roleId]),
+            isActive: u.isActive,
+          ),
+        ),
+      );
+  }
+
+  /// Creates or updates a staff account.
+  ///
+  /// [password] is only applied when non-empty, so editing someone's name or
+  /// role does not silently reset the password they are using.
+  Future<String?> saveUser({
+    required int id,
+    required String fullName,
+    required String username,
+    required AppRole role,
+    String password = '',
+    bool isActive = true,
+  }) async {
+    final normalized = username.trim().toLowerCase();
+    if (normalized.length < 3) return 'Username must be at least 3 characters.';
+    if (fullName.trim().isEmpty) return 'Enter a full name.';
+    if (id == 0 && password.trim().length < 4) {
+      return 'Set a password of at least 4 characters.';
+    }
+    if (password.trim().isNotEmpty && password.trim().length < 4) {
+      return 'Password must be at least 4 characters.';
+    }
+
+    final clash = await (_db.select(
+      _db.users,
+    )..where((u) => u.username.equals(normalized))).getSingleOrNull();
+    if (clash != null && clash.id != id) {
+      return 'That username is already taken.';
+    }
+
+    // The shop must never be locked out of its own settings, so the last
+    // active admin cannot be demoted or switched off.
+    if (id != 0) {
+      final admins = users.where(
+        (u) => u.role == AppRole.admin && u.isActive && u.id != id,
+      );
+      final wasAdmin = users
+          .where((u) => u.id == id)
+          .any((u) => u.role == AppRole.admin && u.isActive);
+      final losingAdmin = wasAdmin && (role != AppRole.admin || !isActive);
+      if (losingAdmin && admins.isEmpty) {
+        return 'This is the only administrator. Make someone else an '
+            'administrator first.';
+      }
+    }
+
+    final roleId = await _ensureRole(role);
+    if (id == 0) {
+      final newId = await _db
+          .into(_db.users)
+          .insert(
+            UsersCompanion.insert(
+              fullName: fullName.trim(),
+              username: normalized,
+              passwordHash: _hash(password.trim()),
+              roleId: roleId,
+              isActive: Value(isActive),
+            ),
+          );
+      await _audit('CREATE', 'users', newId, 'Added ${role.label} $normalized');
+    } else {
+      await (_db.update(_db.users)..where((u) => u.id.equals(id))).write(
+        UsersCompanion(
+          fullName: Value(fullName.trim()),
+          username: Value(normalized),
+          roleId: Value(roleId),
+          isActive: Value(isActive),
+        ),
+      );
+      if (password.trim().isNotEmpty) {
+        await (_db.update(_db.users)..where((u) => u.id.equals(id))).write(
+          UsersCompanion(passwordHash: Value(_hash(password.trim()))),
+        );
+        await _audit('UPDATE', 'users', id, 'Reset password for $normalized');
+      }
+      await _audit('UPDATE', 'users', id, 'Updated $normalized');
+    }
+    await refresh();
+    return null;
+  }
+
+  /// Lets the signed-in user change their own password after proving the old
+  /// one, which is how the seeded admin credentials get retired.
+  Future<String?> changeOwnPassword(String current, String next) async {
+    final user = currentUser;
+    if (user == null) return 'Not signed in.';
+    if (next.trim().length < 4) {
+      return 'New password must be at least 4 characters.';
+    }
+    final row = await (_db.select(
+      _db.users,
+    )..where((u) => u.id.equals(user.id))).getSingleOrNull();
+    if (row == null || row.passwordHash != _hash(current)) {
+      return 'Current password is not correct.';
+    }
+    await (_db.update(_db.users)..where((u) => u.id.equals(user.id))).write(
+      UsersCompanion(passwordHash: Value(_hash(next.trim()))),
+    );
+    await _audit('UPDATE', 'users', user.id, 'Changed own password');
+    return null;
+  }
+
+  /// True while the seeded credentials still work, so the app can nag until
+  /// they are changed.
+  Future<bool> usingDefaultAdminPassword() async {
+    final row = await (_db.select(
+      _db.users,
+    )..where((u) => u.username.equals('admin'))).getSingleOrNull();
+    return row != null && row.passwordHash == _hash('admin123');
+  }
+
+  Future<int> _ensureRole(AppRole role) async {
+    final existing = await (_db.select(
+      _db.roles,
+    )..where((r) => r.name.equals(role.label))).getSingleOrNull();
+    if (existing != null) return existing.id;
+    return _db
+        .into(_db.roles)
+        .insert(
+          RolesCompanion.insert(
+            name: role.label,
+            description: Value(role.description),
+          ),
+        );
   }
 
   Future<void> logout() async {
@@ -1598,11 +1756,5 @@ class RetailStore extends ChangeNotifier {
 
   String _hash(String password) =>
       sha256.convert(utf8.encode(password)).toString();
-  UserRole _roleFromName(String? name) => switch (name?.toLowerCase()) {
-    'cashier' => UserRole.cashier,
-    'manager' => UserRole.manager,
-    'storekeeper' => UserRole.storeKeeper,
-    'sales' => UserRole.sales,
-    _ => UserRole.admin,
-  };
+  AppRole _roleFromName(String? name) => AppRole.fromName(name);
 }

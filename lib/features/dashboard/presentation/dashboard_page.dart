@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/di/injection.dart';
+import '../../../core/services/permissions.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
@@ -30,6 +31,7 @@ class _DashboardPageState extends State<DashboardPage> {
       animation: _store,
       builder: (context, _) {
         final summary = _summary;
+        final showProfit = _store.can(Permission.viewProfit);
         return SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -65,7 +67,9 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
               const SizedBox(height: 24),
 
-              // Headline figures for the chosen window.
+              // Headline figures. Profit and GST are the owner's business, so
+              // they only appear for a user who holds viewProfit — a cashier
+              // still sees takings, which is what they need to reconcile.
               _CardRow(
                 children: [
                   _Kpi(
@@ -75,21 +79,23 @@ class _DashboardPageState extends State<DashboardPage> {
                     icon: Icons.point_of_sale,
                     color: AppColors.accent,
                   ),
-                  _Kpi(
-                    label: '${_period.label} profit',
-                    value: AppFormatters.currency(summary.profit),
-                    caption:
-                        '${summary.marginPercent.toStringAsFixed(1)}% margin',
-                    icon: Icons.trending_up,
-                    color: AppColors.success,
-                  ),
-                  _Kpi(
-                    label: 'GST collected',
-                    value: AppFormatters.currency(summary.tax),
-                    caption: 'payable to government',
-                    icon: Icons.receipt_long,
-                    color: AppColors.warning,
-                  ),
+                  if (showProfit)
+                    _Kpi(
+                      label: '${_period.label} profit',
+                      value: AppFormatters.currency(summary.profit),
+                      caption:
+                          '${summary.marginPercent.toStringAsFixed(1)}% margin',
+                      icon: Icons.trending_up,
+                      color: AppColors.success,
+                    ),
+                  if (showProfit)
+                    _Kpi(
+                      label: 'GST collected',
+                      value: AppFormatters.currency(summary.tax),
+                      caption: 'payable to government',
+                      icon: Icons.receipt_long,
+                      color: AppColors.warning,
+                    ),
                   _Kpi(
                     label: 'Average bill',
                     value: AppFormatters.currency(summary.averageBill),
@@ -126,13 +132,14 @@ class _DashboardPageState extends State<DashboardPage> {
                     icon: Icons.qr_code_2,
                     color: AppColors.accent,
                   ),
-                  _Kpi(
-                    label: 'Stock value',
-                    value: AppFormatters.currency(_store.inventoryValue),
-                    caption: '${_store.products.length} unit(s) on hand',
-                    icon: Icons.inventory_2,
-                    color: AppColors.warning,
-                  ),
+                  if (showProfit)
+                    _Kpi(
+                      label: 'Stock value',
+                      value: AppFormatters.currency(_store.inventoryValue),
+                      caption: '${_store.products.length} unit(s) on hand',
+                      icon: Icons.inventory_2,
+                      color: AppColors.warning,
+                    ),
                 ],
               ),
               const SizedBox(height: 24),

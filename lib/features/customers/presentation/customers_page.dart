@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/di/injection.dart';
+import '../../../core/services/permissions.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/section_card.dart';
@@ -19,11 +20,12 @@ class CustomersPage extends StatelessWidget {
         child: SectionCard(
           title: 'Customers & Ledger',
           actions: [
-            FilledButton.icon(
-              onPressed: () => _openForm(context, store),
-              icon: const Icon(Icons.add),
-              label: const Text('Add customer'),
-            ),
+            if (store.can(Permission.editCustomers))
+              FilledButton.icon(
+                onPressed: () => _openForm(context, store),
+                icon: const Icon(Icons.add),
+                label: const Text('Add customer'),
+              ),
           ],
           child: DataTable(
             columns: const [

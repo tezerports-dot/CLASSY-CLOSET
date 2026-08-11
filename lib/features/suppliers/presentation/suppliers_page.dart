@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/di/injection.dart';
+import '../../../core/services/permissions.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/section_card.dart';
@@ -19,11 +20,12 @@ class SuppliersPage extends StatelessWidget {
         child: SectionCard(
           title: 'Suppliers',
           actions: [
-            FilledButton.icon(
-              onPressed: () => _openForm(context, store),
-              icon: const Icon(Icons.add),
-              label: const Text('Add supplier'),
-            ),
+            if (store.can(Permission.editSuppliers))
+              FilledButton.icon(
+                onPressed: () => _openForm(context, store),
+                icon: const Icon(Icons.add),
+                label: const Text('Add supplier'),
+              ),
           ],
           child: DataTable(
             columns: const [

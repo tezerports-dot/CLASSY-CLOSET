@@ -5,6 +5,7 @@ import '../../../core/services/backup_service.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/widgets/section_card.dart';
 import 'widgets/backup_panel.dart';
+import 'widgets/change_password_form.dart';
 import 'widgets/gst_settings_form.dart';
 import 'widgets/store_profile_form.dart';
 
@@ -43,6 +44,11 @@ class SettingsPage extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             SectionCard(
+              title: 'Your password',
+              child: ChangePasswordForm(store: store),
+            ),
+            const SizedBox(height: 16),
+            SectionCard(
               title: 'Backup & restore',
               child: BackupPanel(service: backup),
             ),
@@ -69,11 +75,11 @@ class SettingsPage extends StatelessWidget {
                   ),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.security),
-                    title: Text('User permissions'),
+                    leading: Icon(Icons.assessment),
+                    title: Text('Detailed reports'),
                     subtitle: Text(
-                      'Roles exist but are not enforced — anyone signed in can '
-                      'reach every screen.',
+                      'GST return summaries and exports to Excel are not built '
+                      'yet.',
                     ),
                   ),
                 ],

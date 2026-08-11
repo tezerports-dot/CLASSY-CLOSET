@@ -1,4 +1,5 @@
 import 'package:classy_closet/core/database/app_database.dart';
+import 'package:classy_closet/core/services/permissions.dart';
 import 'package:classy_closet/core/services/retail_store.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -41,7 +42,7 @@ void main() {
 
       expect(await store.login('admin', 'admin123'), isTrue);
       expect(store.currentUser?.username, 'admin');
-      expect(store.currentUser?.role, UserRole.admin);
+      expect(store.currentUser?.role, AppRole.admin);
     },
   );
 

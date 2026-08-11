@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/di/injection.dart';
+import '../services/permissions.dart';
 import '../services/retail_store.dart';
 import '../theme/app_colors.dart';
 
@@ -62,62 +63,19 @@ class _AppShellState extends State<AppShell> {
                   Expanded(
                     child: ListView(
                       children: [
-                        _NavItem(
-                          collapsed: _collapsed,
-                          icon: Icons.dashboard,
-                          label: 'Dashboard',
-                          route: '/',
-                          selected: widget.location == '/',
-                          onTap: _go,
-                        ),
-                        _NavItem(
-                          collapsed: _collapsed,
-                          icon: Icons.inventory_2,
-                          label: 'Products',
-                          route: '/products',
-                          selected: widget.location == '/products',
-                          onTap: _go,
-                        ),
-                        _NavItem(
-                          collapsed: _collapsed,
-                          icon: Icons.point_of_sale,
-                          label: 'POS',
-                          route: '/pos',
-                          selected: widget.location == '/pos',
-                          onTap: _go,
-                        ),
-                        _NavItem(
-                          collapsed: _collapsed,
-                          icon: Icons.people,
-                          label: 'Customers',
-                          route: '/customers',
-                          selected: widget.location == '/customers',
-                          onTap: _go,
-                        ),
-                        _NavItem(
-                          collapsed: _collapsed,
-                          icon: Icons.local_shipping,
-                          label: 'Suppliers',
-                          route: '/suppliers',
-                          selected: widget.location == '/suppliers',
-                          onTap: _go,
-                        ),
-                        _NavItem(
-                          collapsed: _collapsed,
-                          icon: Icons.bar_chart,
-                          label: 'Reports',
-                          route: '/reports',
-                          selected: widget.location == '/reports',
-                          onTap: _go,
-                        ),
-                        _NavItem(
-                          collapsed: _collapsed,
-                          icon: Icons.settings,
-                          label: 'Settings',
-                          route: '/settings',
-                          selected: widget.location == '/settings',
-                          onTap: _go,
-                        ),
+                        // Only what this user may actually open. The
+                        // router blocks the rest as well, so hiding an item is
+                        // tidiness rather than the security boundary.
+                        for (final item in _navItems)
+                          if (_store.can(item.permission))
+                            _NavItem(
+                              collapsed: _collapsed,
+                              icon: item.icon,
+                              label: item.label,
+                              route: item.route,
+                              selected: widget.location == item.route,
+                              onTap: _go,
+                            ),
                       ],
                     ),
                   ),
@@ -163,6 +121,36 @@ class _AppShellState extends State<AppShell> {
 
   void _go(String route) => context.go(route);
 }
+
+/// One sidebar entry and the permission that reveals it.
+class _NavEntry {
+  const _NavEntry(this.icon, this.label, this.route, this.permission);
+  final IconData icon;
+  final String label;
+  final String route;
+  final Permission permission;
+}
+
+const _navItems = <_NavEntry>[
+  _NavEntry(Icons.dashboard, 'Dashboard', '/', Permission.viewDashboard),
+  _NavEntry(Icons.point_of_sale, 'Billing', '/pos', Permission.sellAtPos),
+  _NavEntry(
+    Icons.inventory_2,
+    'Products',
+    '/products',
+    Permission.viewProducts,
+  ),
+  _NavEntry(Icons.people, 'Customers', '/customers', Permission.viewCustomers),
+  _NavEntry(
+    Icons.local_shipping,
+    'Suppliers',
+    '/suppliers',
+    Permission.viewSuppliers,
+  ),
+  _NavEntry(Icons.bar_chart, 'Reports', '/reports', Permission.viewReports),
+  _NavEntry(Icons.badge, 'Staff', '/users', Permission.manageUsers),
+  _NavEntry(Icons.settings, 'Settings', '/settings', Permission.manageSettings),
+];
 
 class _NavItem extends StatelessWidget {
   const _NavItem({

@@ -1,5 +1,6 @@
 import 'package:go_router/go_router.dart';
 
+import '../core/services/permissions.dart';
 import '../core/services/retail_store.dart';
 import '../core/widgets/app_shell.dart';
 import '../features/auth/presentation/login_page.dart';
@@ -11,6 +12,7 @@ import '../features/reports/presentation/reports_page.dart';
 import '../features/settings/presentation/settings_page.dart';
 import '../features/setup/presentation/store_setup_page.dart';
 import '../features/suppliers/presentation/suppliers_page.dart';
+import '../features/users/presentation/users_page.dart';
 
 GoRouter createAppRouter(RetailStore store) {
   return GoRouter(
@@ -20,10 +22,23 @@ GoRouter createAppRouter(RetailStore store) {
       final location = state.matchedLocation;
       final settingUp = location == '/setup';
       final loggingIn = location == '/login';
+
       if (!store.hasStoreProfile) return settingUp ? null : '/setup';
-      if (settingUp) return store.isAuthenticated ? '/' : '/login';
-      if (!store.isAuthenticated) return loggingIn ? null : '/login';
-      if (loggingIn) return '/';
+
+      final user = store.currentUser;
+      if (settingUp) {
+        return user == null ? '/login' : landingRouteFor(user.role);
+      }
+      if (user == null) return loggingIn ? null : '/login';
+      if (loggingIn) return landingRouteFor(user.role);
+
+      // The real gate. Typing a URL, restoring a deep link or following a
+      // stale route all pass through here, so a cashier cannot reach reports
+      // by any path just because the nav item is hidden.
+      final required = routePermissions[location];
+      if (required != null && !user.can(required)) {
+        return landingRouteFor(user.role);
+      }
       return null;
     },
     routes: [
@@ -46,6 +61,7 @@ GoRouter createAppRouter(RetailStore store) {
           ),
           GoRoute(path: '/reports', builder: (_, __) => const ReportsPage()),
           GoRoute(path: '/settings', builder: (_, __) => const SettingsPage()),
+          GoRoute(path: '/users', builder: (_, __) => const UsersPage()),
         ],
       ),
     ],
