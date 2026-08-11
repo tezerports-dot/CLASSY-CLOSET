@@ -305,6 +305,10 @@ class Settings extends Table {
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
+  /// Runs the schema against a caller-supplied executor, so tests can drive the
+  /// real migration and queries against an in-memory database.
+  AppDatabase.withExecutor(super.executor);
+
   @override
   int get schemaVersion => 1;
 
