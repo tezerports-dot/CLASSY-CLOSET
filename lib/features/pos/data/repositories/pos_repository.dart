@@ -8,5 +8,17 @@ class PosRepository {
   List<CartLine> get cart => List.unmodifiable(_store.cart);
   void addToCart(ProductRecord product) => _store.addToCart(product);
   void removeFromCart(CartLine line) => _store.removeFromCart(line);
-  Future<SaleRecord> checkout({CustomerRecord? customer, required double paid, required String paymentMethod, required double cashAmount, required double cardAmount}) => _store.checkout(customer: customer, paid: paid, paymentMethod: paymentMethod, cashAmount: cashAmount, cardAmount: cardAmount);
+  Future<SaleRecord> checkout({
+    CustomerRecord? customer,
+    required double paid,
+    required String paymentMethod,
+    required double cashAmount,
+    required double cardAmount,
+  }) => _store.checkout(
+    customer: customer,
+    paid: paid,
+    paymentMethod: paymentMethod,
+    cashAmount: cashAmount,
+    cardAmount: cardAmount,
+  );
 }

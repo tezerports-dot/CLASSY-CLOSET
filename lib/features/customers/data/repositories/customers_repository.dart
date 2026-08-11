@@ -5,7 +5,9 @@ class CustomersRepository {
 
   final RetailStore _store;
 
-  List<CustomerRecord> get cachedCustomers => List.unmodifiable(_store.customers);
-  Future<void> addCustomer(CustomerRecord customer) => _store.addCustomer(customer);
+  List<CustomerRecord> get cachedCustomers =>
+      List.unmodifiable(_store.customers);
+  Future<void> addCustomer(CustomerRecord customer) =>
+      _store.addCustomer(customer);
   Future<void> refresh() => _store.refresh();
 }

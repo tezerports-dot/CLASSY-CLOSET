@@ -15,23 +15,34 @@ Future<void> configureDependencies() async {
     getIt.registerLazySingleton<AppDatabase>(AppDatabase.new);
   }
   if (!getIt.isRegistered<RetailStore>()) {
-    getIt.registerLazySingleton<RetailStore>(() => RetailStore(getIt<AppDatabase>()));
+    getIt.registerLazySingleton<RetailStore>(
+      () => RetailStore(getIt<AppDatabase>()),
+    );
   }
   if (!getIt.isRegistered<AuthRepository>()) {
-    getIt.registerLazySingleton<AuthRepository>(() => AuthRepository(getIt<RetailStore>()));
+    getIt.registerLazySingleton<AuthRepository>(
+      () => AuthRepository(getIt<RetailStore>()),
+    );
   }
   if (!getIt.isRegistered<ProductsRepository>()) {
-    getIt.registerLazySingleton<ProductsRepository>(() => ProductsRepository(getIt<RetailStore>()));
+    getIt.registerLazySingleton<ProductsRepository>(
+      () => ProductsRepository(getIt<RetailStore>()),
+    );
   }
   if (!getIt.isRegistered<CustomersRepository>()) {
-    getIt.registerLazySingleton<CustomersRepository>(() => CustomersRepository(getIt<RetailStore>()));
+    getIt.registerLazySingleton<CustomersRepository>(
+      () => CustomersRepository(getIt<RetailStore>()),
+    );
   }
   if (!getIt.isRegistered<SuppliersRepository>()) {
-    getIt.registerLazySingleton<SuppliersRepository>(() => SuppliersRepository(getIt<RetailStore>()));
+    getIt.registerLazySingleton<SuppliersRepository>(
+      () => SuppliersRepository(getIt<RetailStore>()),
+    );
   }
   if (!getIt.isRegistered<PosRepository>()) {
-    getIt.registerLazySingleton<PosRepository>(() => PosRepository(getIt<RetailStore>()));
+    getIt.registerLazySingleton<PosRepository>(
+      () => PosRepository(getIt<RetailStore>()),
+    );
   }
   await getIt<RetailStore>().initialize();
 }
-

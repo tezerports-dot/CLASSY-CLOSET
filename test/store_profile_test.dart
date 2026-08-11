@@ -18,7 +18,9 @@ void main() {
         receiptNumberPrefix: 'CC',
       );
 
-      final restored = StoreProfile.fromJson(jsonDecode(jsonEncode(profile.toJson())) as Map<String, dynamic>);
+      final restored = StoreProfile.fromJson(
+        jsonDecode(jsonEncode(profile.toJson())) as Map<String, dynamic>,
+      );
 
       expect(restored.storeName, profile.storeName);
       expect(restored.currencySymbol, profile.currencySymbol);
@@ -31,20 +33,31 @@ void main() {
       expect(restored.receiptNumberPrefix, profile.receiptNumberPrefix);
     });
 
-    test('defaults the receipt prefix and currency when the stored blob predates them', () {
-      final restored = StoreProfile.fromJson(<String, dynamic>{'storeName': 'Legacy Store'});
+    test(
+      'defaults the receipt prefix and currency when the stored blob predates them',
+      () {
+        final restored = StoreProfile.fromJson(<String, dynamic>{
+          'storeName': 'Legacy Store',
+        });
 
-      expect(restored.storeName, 'Legacy Store');
-      expect(restored.currencySymbol, r'$');
-      expect(restored.receiptNumberPrefix, isEmpty);
-      expect(restored.logoPath, isNull);
-    });
+        expect(restored.storeName, 'Legacy Store');
+        expect(restored.currencySymbol, r'$');
+        expect(restored.receiptNumberPrefix, isEmpty);
+        expect(restored.logoPath, isNull);
+      },
+    );
 
-    test('trims the receipt prefix so it cannot inject padding into receipt numbers', () {
-      final restored = StoreProfile.fromJson(<String, dynamic>{'storeName': ' Store ', 'receiptNumberPrefix': '  INV  '});
+    test(
+      'trims the receipt prefix so it cannot inject padding into receipt numbers',
+      () {
+        final restored = StoreProfile.fromJson(<String, dynamic>{
+          'storeName': ' Store ',
+          'receiptNumberPrefix': '  INV  ',
+        });
 
-      expect(restored.storeName, 'Store');
-      expect(restored.receiptNumberPrefix, 'INV');
-    });
+        expect(restored.storeName, 'Store');
+        expect(restored.receiptNumberPrefix, 'INV');
+      },
+    );
   });
 }

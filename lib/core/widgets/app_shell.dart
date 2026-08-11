@@ -34,28 +34,100 @@ class _AppShellState extends State<AppShell> {
               child: Column(
                 children: [
                   ListTile(
-                    leading: _store.storeProfile?.logoPath == null || !File(_store.storeProfile!.logoPath!).existsSync() ? const Icon(Icons.storefront, color: Colors.white) : Image.file(File(_store.storeProfile!.logoPath!), width: 28, height: 28, fit: BoxFit.contain),
-                    title: _collapsed ? null : Text(_store.displayStoreName, style: const TextStyle(color: Colors.white)),
+                    leading:
+                        _store.storeProfile?.logoPath == null ||
+                            !File(_store.storeProfile!.logoPath!).existsSync()
+                        ? const Icon(Icons.storefront, color: Colors.white)
+                        : Image.file(
+                            File(_store.storeProfile!.logoPath!),
+                            width: 28,
+                            height: 28,
+                            fit: BoxFit.contain,
+                          ),
+                    title: _collapsed
+                        ? null
+                        : Text(
+                            _store.displayStoreName,
+                            style: const TextStyle(color: Colors.white),
+                          ),
                     trailing: IconButton(
                       onPressed: () => setState(() => _collapsed = !_collapsed),
-                      icon: Icon(_collapsed ? Icons.chevron_right : Icons.chevron_left, color: Colors.white70),
+                      icon: Icon(
+                        _collapsed ? Icons.chevron_right : Icons.chevron_left,
+                        color: Colors.white70,
+                      ),
                     ),
                   ),
                   const Divider(color: Colors.white12),
                   Expanded(
                     child: ListView(
                       children: [
-                        _NavItem(collapsed: _collapsed, icon: Icons.dashboard, label: 'Dashboard', route: '/', selected: widget.location == '/', onTap: _go),
-                        _NavItem(collapsed: _collapsed, icon: Icons.inventory_2, label: 'Products', route: '/products', selected: widget.location == '/products', onTap: _go),
-                        _NavItem(collapsed: _collapsed, icon: Icons.point_of_sale, label: 'POS', route: '/pos', selected: widget.location == '/pos', onTap: _go),
-                        _NavItem(collapsed: _collapsed, icon: Icons.people, label: 'Customers', route: '/customers', selected: widget.location == '/customers', onTap: _go),
-                        _NavItem(collapsed: _collapsed, icon: Icons.local_shipping, label: 'Suppliers', route: '/suppliers', selected: widget.location == '/suppliers', onTap: _go),
-                        _NavItem(collapsed: _collapsed, icon: Icons.bar_chart, label: 'Reports', route: '/reports', selected: widget.location == '/reports', onTap: _go),
-                        _NavItem(collapsed: _collapsed, icon: Icons.settings, label: 'Settings', route: '/settings', selected: widget.location == '/settings', onTap: _go),
+                        _NavItem(
+                          collapsed: _collapsed,
+                          icon: Icons.dashboard,
+                          label: 'Dashboard',
+                          route: '/',
+                          selected: widget.location == '/',
+                          onTap: _go,
+                        ),
+                        _NavItem(
+                          collapsed: _collapsed,
+                          icon: Icons.inventory_2,
+                          label: 'Products',
+                          route: '/products',
+                          selected: widget.location == '/products',
+                          onTap: _go,
+                        ),
+                        _NavItem(
+                          collapsed: _collapsed,
+                          icon: Icons.point_of_sale,
+                          label: 'POS',
+                          route: '/pos',
+                          selected: widget.location == '/pos',
+                          onTap: _go,
+                        ),
+                        _NavItem(
+                          collapsed: _collapsed,
+                          icon: Icons.people,
+                          label: 'Customers',
+                          route: '/customers',
+                          selected: widget.location == '/customers',
+                          onTap: _go,
+                        ),
+                        _NavItem(
+                          collapsed: _collapsed,
+                          icon: Icons.local_shipping,
+                          label: 'Suppliers',
+                          route: '/suppliers',
+                          selected: widget.location == '/suppliers',
+                          onTap: _go,
+                        ),
+                        _NavItem(
+                          collapsed: _collapsed,
+                          icon: Icons.bar_chart,
+                          label: 'Reports',
+                          route: '/reports',
+                          selected: widget.location == '/reports',
+                          onTap: _go,
+                        ),
+                        _NavItem(
+                          collapsed: _collapsed,
+                          icon: Icons.settings,
+                          label: 'Settings',
+                          route: '/settings',
+                          selected: widget.location == '/settings',
+                          onTap: _go,
+                        ),
                       ],
                     ),
                   ),
-                  _NavItem(collapsed: _collapsed, icon: Icons.logout, label: 'Logout', route: '/login', onTap: (_) async => _store.logout()),
+                  _NavItem(
+                    collapsed: _collapsed,
+                    icon: Icons.logout,
+                    label: 'Logout',
+                    route: '/login',
+                    onTap: (_) async => _store.logout(),
+                  ),
                 ],
               ),
             ),
@@ -70,7 +142,11 @@ class _AppShellState extends State<AppShell> {
                   child: Row(
                     children: [
                       const Expanded(child: _GlobalSearchHint()),
-                      CircleAvatar(child: Text((_store.currentUser?.name ?? 'A').characters.first)),
+                      CircleAvatar(
+                        child: Text(
+                          (_store.currentUser?.name ?? 'A').characters.first,
+                        ),
+                      ),
                       const SizedBox(width: 12),
                       Text(_store.currentUser?.name ?? 'Admin'),
                     ],
@@ -89,7 +165,14 @@ class _AppShellState extends State<AppShell> {
 }
 
 class _NavItem extends StatelessWidget {
-  const _NavItem({required this.collapsed, required this.icon, required this.label, required this.route, required this.onTap, this.selected = false});
+  const _NavItem({
+    required this.collapsed,
+    required this.icon,
+    required this.label,
+    required this.route,
+    required this.onTap,
+    this.selected = false,
+  });
 
   final bool collapsed;
   final IconData icon;
@@ -102,11 +185,16 @@ class _NavItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: selected ? AppColors.sidebarSelected : Colors.transparent, borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+        color: selected ? AppColors.sidebarSelected : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: ListTile(
         onTap: () => onTap(route),
         leading: Icon(icon, color: selected ? Colors.white : Colors.white70),
-        title: collapsed ? null : Text(label, style: const TextStyle(color: Colors.white70)),
+        title: collapsed
+            ? null
+            : Text(label, style: const TextStyle(color: Colors.white70)),
       ),
     );
   }
@@ -122,7 +210,10 @@ class _GlobalSearchHint extends StatelessWidget {
       child: Container(
         width: 360,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(color: AppColors.contentBackground, borderRadius: BorderRadius.circular(12)),
+        decoration: BoxDecoration(
+          color: AppColors.contentBackground,
+          borderRadius: BorderRadius.circular(12),
+        ),
         child: const Row(
           children: [
             Icon(Icons.search, color: AppColors.textSecondary),

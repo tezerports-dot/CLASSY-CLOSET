@@ -60,24 +60,31 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('adding to the cart auto-fills the cash tendered without a setState-during-build crash', (tester) async {
-    await pumpPos(tester);
+  testWidgets(
+    'adding to the cart auto-fills the cash tendered without a setState-during-build crash',
+    (tester) async {
+      await pumpPos(tester);
 
-    await tester.tap(find.text('Cotton Shirt'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Cotton Shirt'));
+      await tester.pumpAndSettle();
 
-    // The auto-fill runs from build(), and the controller it writes to has a
-    // listener that calls setState, so it has to be deferred past the frame.
-    expect(tester.takeException(), isNull);
+      // The auto-fill runs from build(), and the controller it writes to has a
+      // listener that calls setState, so it has to be deferred past the frame.
+      expect(tester.takeException(), isNull);
 
-    final cashField = tester.widget<TextField>(
-      find.byWidgetPredicate((w) => w is TextField && w.decoration?.labelText == 'Cash tendered'),
-    );
-    expect(cashField.controller?.text, '10.00');
-    expect(store.cart.single.quantity, 1);
-  });
+      final cashField = tester.widget<TextField>(
+        find.byWidgetPredicate(
+          (w) => w is TextField && w.decoration?.labelText == 'Cash tendered',
+        ),
+      );
+      expect(cashField.controller?.text, '10.00');
+      expect(store.cart.single.quantity, 1);
+    },
+  );
 
-  testWidgets('survives a store refresh that replaces the customer records', (tester) async {
+  testWidgets('survives a store refresh that replaces the customer records', (
+    tester,
+  ) async {
     await pumpPos(tester);
 
     // refresh() rebuilds `customers` with new instances. If the page kept holding

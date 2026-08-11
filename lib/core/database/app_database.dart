@@ -34,8 +34,10 @@ class Permissions extends Table {
 
 @DataClassName('RolePermissionRow')
 class RolePermissions extends Table {
-  IntColumn get roleId => integer().references(Roles, #id, onDelete: KeyAction.cascade)();
-  IntColumn get permissionId => integer().references(Permissions, #id, onDelete: KeyAction.cascade)();
+  IntColumn get roleId =>
+      integer().references(Roles, #id, onDelete: KeyAction.cascade)();
+  IntColumn get permissionId =>
+      integer().references(Permissions, #id, onDelete: KeyAction.cascade)();
 
   @override
   Set<Column> get primaryKey => {roleId, permissionId};
@@ -87,7 +89,8 @@ class Products extends Table {
   TextColumn get qrCode => text().nullable()();
   TextColumn get name => text().withLength(min: 1, max: 180)();
   TextColumn get description => text().nullable()();
-  IntColumn get categoryId => integer().nullable().references(Categories, #id)();
+  IntColumn get categoryId =>
+      integer().nullable().references(Categories, #id)();
   IntColumn get brandId => integer().nullable().references(Brands, #id)();
   IntColumn get unitId => integer().references(Units, #id)();
   IntColumn get supplierId => integer().nullable().references(Suppliers, #id)();
@@ -106,7 +109,8 @@ class Products extends Table {
 @DataClassName('ProductImageRow')
 class ProductImages extends Table {
   IntColumn get id => integer().autoIncrement()();
-  IntColumn get productId => integer().references(Products, #id, onDelete: KeyAction.cascade)();
+  IntColumn get productId =>
+      integer().references(Products, #id, onDelete: KeyAction.cascade)();
   TextColumn get filePath => text()();
   BoolColumn get isPrimary => boolean().withDefault(const Constant(false))();
 }
@@ -144,13 +148,15 @@ class Purchases extends Table {
   RealColumn get taxTotal => real().withDefault(const Constant(0))();
   RealColumn get grandTotal => real().withDefault(const Constant(0))();
   RealColumn get paidAmount => real().withDefault(const Constant(0))();
-  DateTimeColumn get purchasedAt => dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get purchasedAt =>
+      dateTime().withDefault(currentDateAndTime)();
 }
 
 @DataClassName('PurchaseItemRow')
 class PurchaseItems extends Table {
   IntColumn get id => integer().autoIncrement()();
-  IntColumn get purchaseId => integer().references(Purchases, #id, onDelete: KeyAction.cascade)();
+  IntColumn get purchaseId =>
+      integer().references(Purchases, #id, onDelete: KeyAction.cascade)();
   IntColumn get productId => integer().references(Products, #id)();
   RealColumn get quantity => real()();
   RealColumn get unitCost => real()();
@@ -178,7 +184,8 @@ class Sales extends Table {
 @DataClassName('SaleItemRow')
 class SaleItems extends Table {
   IntColumn get id => integer().autoIncrement()();
-  IntColumn get saleId => integer().references(Sales, #id, onDelete: KeyAction.cascade)();
+  IntColumn get saleId =>
+      integer().references(Sales, #id, onDelete: KeyAction.cascade)();
   IntColumn get productId => integer().references(Products, #id)();
   RealColumn get quantity => real()();
   RealColumn get unitPrice => real()();
@@ -200,7 +207,8 @@ class Returns extends Table {
 @DataClassName('ReturnItemRow')
 class ReturnItems extends Table {
   IntColumn get id => integer().autoIncrement()();
-  IntColumn get returnId => integer().references(Returns, #id, onDelete: KeyAction.cascade)();
+  IntColumn get returnId =>
+      integer().references(Returns, #id, onDelete: KeyAction.cascade)();
   IntColumn get productId => integer().references(Products, #id)();
   RealColumn get quantity => real()();
   RealColumn get refundAmount => real()();
@@ -275,33 +283,35 @@ class Settings extends Table {
   Set<Column> get primaryKey => {key};
 }
 
-@DriftDatabase(tables: [
-  Users,
-  Roles,
-  Permissions,
-  RolePermissions,
-  Categories,
-  Brands,
-  Units,
-  Products,
-  ProductImages,
-  Customers,
-  Suppliers,
-  InventoryMovements,
-  Purchases,
-  PurchaseItems,
-  Sales,
-  SaleItems,
-  Returns,
-  ReturnItems,
-  Expenses,
-  ExpenseCategories,
-  CashBook,
-  BankBook,
-  LedgerEntries,
-  AuditLogs,
-  Settings,
-])
+@DriftDatabase(
+  tables: [
+    Users,
+    Roles,
+    Permissions,
+    RolePermissions,
+    Categories,
+    Brands,
+    Units,
+    Products,
+    ProductImages,
+    Customers,
+    Suppliers,
+    InventoryMovements,
+    Purchases,
+    PurchaseItems,
+    Sales,
+    SaleItems,
+    Returns,
+    ReturnItems,
+    Expenses,
+    ExpenseCategories,
+    CashBook,
+    BankBook,
+    LedgerEntries,
+    AuditLogs,
+    Settings,
+  ],
+)
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
@@ -314,11 +324,11 @@ class AppDatabase extends _$AppDatabase {
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onCreate: (m) async => m.createAll(),
-        beforeOpen: (details) async {
-          await customStatement('PRAGMA foreign_keys = ON');
-        },
-      );
+    onCreate: (m) async => m.createAll(),
+    beforeOpen: (details) async {
+      await customStatement('PRAGMA foreign_keys = ON');
+    },
+  );
 }
 
 LazyDatabase _openConnection() {

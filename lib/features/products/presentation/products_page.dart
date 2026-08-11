@@ -23,15 +23,35 @@ class _ProductsPageState extends State<ProductsPage> {
       animation: _store,
       builder: (context, _) {
         final query = _search.text.toLowerCase();
-        final rows = _store.products.where((p) => '${p.sku} ${p.name} ${p.category} ${p.brand} ${p.barcode}'.toLowerCase().contains(query)).toList();
+        final rows = _store.products
+            .where(
+              (p) => '${p.sku} ${p.name} ${p.category} ${p.brand} ${p.barcode}'
+                  .toLowerCase()
+                  .contains(query),
+            )
+            .toList();
         return Padding(
           padding: const EdgeInsets.all(24),
           child: SectionCard(
             title: 'Products',
-            actions: [FilledButton.icon(onPressed: () => _openForm(), icon: const Icon(Icons.add), label: const Text('Add product'))],
+            actions: [
+              FilledButton.icon(
+                onPressed: () => _openForm(),
+                icon: const Icon(Icons.add),
+                label: const Text('Add product'),
+              ),
+            ],
             child: Column(
               children: [
-                TextField(controller: _search, onChanged: (_) => setState(() {}), decoration: const InputDecoration(prefixIcon: Icon(Icons.search), labelText: 'Search by SKU, barcode, name, category or brand')),
+                TextField(
+                  controller: _search,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    labelText:
+                        'Search by SKU, barcode, name, category or brand',
+                  ),
+                ),
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
@@ -47,15 +67,31 @@ class _ProductsPageState extends State<ProductsPage> {
                     ],
                     rows: [
                       for (final p in rows)
-                        DataRow(color: p.lowStock ? WidgetStateProperty.all(Colors.orange.withValues(alpha: .08)) : null, cells: [
-                          DataCell(Text(p.sku)),
-                          DataCell(InkWell(onTap: () => _openForm(p), child: Text(p.name))),
-                          DataCell(Text('${p.category} / ${p.brand}')),
-                          DataCell(Text('${p.stock.toStringAsFixed(0)} ${p.unit}')),
-                          DataCell(Text(p.minimumStock.toStringAsFixed(0))),
-                          DataCell(Text(AppFormatters.currency(p.sellingPrice))),
-                          DataCell(Text(p.location)),
-                        ]),
+                        DataRow(
+                          color: p.lowStock
+                              ? WidgetStateProperty.all(
+                                  Colors.orange.withValues(alpha: .08),
+                                )
+                              : null,
+                          cells: [
+                            DataCell(Text(p.sku)),
+                            DataCell(
+                              InkWell(
+                                onTap: () => _openForm(p),
+                                child: Text(p.name),
+                              ),
+                            ),
+                            DataCell(Text('${p.category} / ${p.brand}')),
+                            DataCell(
+                              Text('${p.stock.toStringAsFixed(0)} ${p.unit}'),
+                            ),
+                            DataCell(Text(p.minimumStock.toStringAsFixed(0))),
+                            DataCell(
+                              Text(AppFormatters.currency(p.sellingPrice)),
+                            ),
+                            DataCell(Text(p.location)),
+                          ],
+                        ),
                     ],
                   ),
                 ),
@@ -68,6 +104,9 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   Future<void> _openForm([ProductRecord? product]) async {
-    await showDialog<void>(context: context, builder: (_) => ProductFormDialog(store: _store, product: product));
+    await showDialog<void>(
+      context: context,
+      builder: (_) => ProductFormDialog(store: _store, product: product),
+    );
   }
 }

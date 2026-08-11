@@ -5,6 +5,7 @@ class SuppliersRepository {
 
   final RetailStore _store;
 
-  List<SupplierRecord> get cachedSuppliers => List.unmodifiable(_store.suppliers);
+  List<SupplierRecord> get cachedSuppliers =>
+      List.unmodifiable(_store.suppliers);
   Future<void> refresh() => _store.refresh();
 }

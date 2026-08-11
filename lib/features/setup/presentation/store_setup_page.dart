@@ -23,11 +23,19 @@ class StoreSetupPage extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('Set up your store', style: Theme.of(context).textTheme.headlineMedium),
+                    Text(
+                      'Set up your store',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
                     const SizedBox(height: 8),
-                    const Text('This profile is stored only in this local offline install and controls the app name, logo, receipts, and reports.'),
+                    const Text(
+                      'This profile is stored only in this local offline install and controls the app name, logo, receipts, and reports.',
+                    ),
                     const SizedBox(height: 24),
-                    StoreProfileForm(store: store, onSaved: () => context.go('/login')),
+                    StoreProfileForm(
+                      store: store,
+                      onSaved: () => context.go('/login'),
+                    ),
                   ],
                 ),
               ),

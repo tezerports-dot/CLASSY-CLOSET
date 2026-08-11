@@ -30,13 +30,20 @@ GoRouter createAppRouter(RetailStore store) {
       GoRoute(path: '/setup', builder: (_, __) => const StoreSetupPage()),
       GoRoute(path: '/login', builder: (_, __) => const LoginPage()),
       ShellRoute(
-        builder: (context, state, child) => AppShell(location: state.matchedLocation, child: child),
+        builder: (context, state, child) =>
+            AppShell(location: state.matchedLocation, child: child),
         routes: [
           GoRoute(path: '/', builder: (_, __) => const DashboardPage()),
           GoRoute(path: '/products', builder: (_, __) => const ProductsPage()),
           GoRoute(path: '/pos', builder: (_, __) => const PosPage()),
-          GoRoute(path: '/customers', builder: (_, __) => const CustomersPage()),
-          GoRoute(path: '/suppliers', builder: (_, __) => const SuppliersPage()),
+          GoRoute(
+            path: '/customers',
+            builder: (_, __) => const CustomersPage(),
+          ),
+          GoRoute(
+            path: '/suppliers',
+            builder: (_, __) => const SuppliersPage(),
+          ),
           GoRoute(path: '/reports', builder: (_, __) => const ReportsPage()),
           GoRoute(path: '/settings', builder: (_, __) => const SettingsPage()),
         ],

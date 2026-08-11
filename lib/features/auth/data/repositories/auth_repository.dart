@@ -12,6 +12,7 @@ class AuthRepository {
   AppUser? get currentUser => _store.currentUser;
   bool get isAuthenticated => _store.isAuthenticated;
 
-  Future<bool> login(String username, String password) => _store.login(username, password);
+  Future<bool> login(String username, String password) =>
+      _store.login(username, password);
   Future<void> logout() => _store.logout();
 }

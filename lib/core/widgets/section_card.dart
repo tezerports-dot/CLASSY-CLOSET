@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 
 class SectionCard extends StatelessWidget {
-  const SectionCard({required this.title, required this.child, this.actions = const [], super.key});
+  const SectionCard({
+    required this.title,
+    required this.child,
+    this.actions = const [],
+    super.key,
+  });
 
   final String title;
   final Widget child;
@@ -17,7 +22,12 @@ class SectionCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Expanded(child: Text(title, style: Theme.of(context).textTheme.titleLarge)),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
                 ...actions,
               ],
             ),
