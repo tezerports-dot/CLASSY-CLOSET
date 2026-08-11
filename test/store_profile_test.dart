@@ -41,7 +41,7 @@ void main() {
         });
 
         expect(restored.storeName, 'Legacy Store');
-        expect(restored.currencySymbol, r'$');
+        expect(restored.currencySymbol, '₹');
         expect(restored.receiptNumberPrefix, isEmpty);
         expect(restored.logoPath, isNull);
       },

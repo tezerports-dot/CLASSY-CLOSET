@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../database/app_database.dart';
 import '../utils/formatters.dart';
+import 'gst.dart';
 
 enum UserRole { admin, manager, cashier, storeKeeper, sales }
 
@@ -36,6 +37,9 @@ class StoreProfile {
     this.taxRegistrationNumber,
     this.receiptFooterText,
     this.receiptNumberPrefix = '',
+    this.gstin,
+    this.stateCode,
+    this.currencyLocale = 'en_IN',
   });
 
   final String storeName;
@@ -48,6 +52,23 @@ class StoreProfile {
   final String? receiptFooterText;
   final String receiptNumberPrefix;
 
+  /// The shop's own GST number. Printing it is what turns a receipt into a tax
+  /// invoice under Rule 46.
+  final String? gstin;
+
+  /// Place of supply for the shop. Compared against the buyer's state to decide
+  /// between CGST+SGST and IGST.
+  final String? stateCode;
+  final String currencyLocale;
+
+  /// Falls back to the state code embedded in the GSTIN when none was entered.
+  String? get effectiveStateCode =>
+      (stateCode != null && stateCode!.trim().isNotEmpty)
+      ? stateCode!.trim()
+      : stateCodeFromGstin(gstin);
+
+  bool get hasGstin => isValidGstinFormat(gstin);
+
   Map<String, dynamic> toJson() => {
     'storeName': storeName,
     'currencySymbol': currencySymbol,
@@ -58,11 +79,14 @@ class StoreProfile {
     'taxRegistrationNumber': taxRegistrationNumber,
     'receiptFooterText': receiptFooterText,
     'receiptNumberPrefix': receiptNumberPrefix,
+    'gstin': gstin,
+    'stateCode': stateCode,
+    'currencyLocale': currencyLocale,
   };
 
   factory StoreProfile.fromJson(Map<String, dynamic> json) => StoreProfile(
     storeName: (json['storeName'] as String? ?? '').trim(),
-    currencySymbol: (json['currencySymbol'] as String? ?? r'$').trim(),
+    currencySymbol: (json['currencySymbol'] as String? ?? '₹').trim(),
     logoPath: json['logoPath'] as String?,
     address: json['address'] as String?,
     phone: json['phone'] as String?,
@@ -70,7 +94,69 @@ class StoreProfile {
     taxRegistrationNumber: json['taxRegistrationNumber'] as String?,
     receiptFooterText: json['receiptFooterText'] as String?,
     receiptNumberPrefix: (json['receiptNumberPrefix'] as String? ?? '').trim(),
+    gstin: (json['gstin'] as String?)?.trim(),
+    stateCode: (json['stateCode'] as String?)?.trim(),
+    currencyLocale: (json['currencyLocale'] as String? ?? 'en_IN').trim(),
   );
+}
+
+/// A design and the size/colour run underneath it.
+class StyleRecord {
+  StyleRecord({
+    required this.id,
+    required this.styleCode,
+    required this.name,
+    this.description = '',
+    this.category = '',
+    this.brand = '',
+    this.unit = 'pcs',
+    this.supplier = '',
+    this.hsnCode = '',
+    this.season = '',
+    this.purchasePrice = 0,
+    this.sellingPrice = 0,
+    this.active = true,
+    List<ProductRecord>? variants,
+  }) : variants = variants ?? <ProductRecord>[];
+
+  final int id;
+  final String styleCode;
+  final String name;
+  final String description;
+  final String category;
+  final String brand;
+  final String unit;
+  final String supplier;
+  final String hsnCode;
+  final String season;
+  final double purchasePrice;
+  final double sellingPrice;
+  final bool active;
+  final List<ProductRecord> variants;
+
+  double get totalStock => variants.fold(0.0, (sum, v) => sum + v.stock);
+  double get stockValue => variants.fold(0.0, (sum, v) => sum + v.stockValue);
+
+  /// Distinct sizes in the order they were entered, for the matrix columns.
+  List<String> get sizes => _distinct(variants.map((v) => v.size));
+
+  /// Distinct colours, for the matrix rows.
+  List<String> get colors => _distinct(variants.map((v) => v.color));
+
+  ProductRecord? variantAt(String color, String size) {
+    for (final v in variants) {
+      if (v.color == color && v.size == size) return v;
+    }
+    return null;
+  }
+
+  static List<String> _distinct(Iterable<String> values) {
+    final seen = <String>[];
+    for (final value in values) {
+      if (!seen.contains(value)) seen.add(value);
+    }
+    return seen;
+  }
 }
 
 class ProductRecord {
@@ -94,6 +180,11 @@ class ProductRecord {
     this.maximumStock,
     this.expiryDate,
     this.active = true,
+    this.styleId,
+    this.size = '',
+    this.color = '',
+    this.hsnCode = '',
+    this.imagePath,
   });
 
   final int id;
@@ -116,8 +207,26 @@ class ProductRecord {
   final DateTime? expiryDate;
   final bool active;
 
+  /// Set when this unit is one cell of a style's size/colour matrix.
+  final int? styleId;
+  final String size;
+  final String color;
+  final String hsnCode;
+
+  /// Primary image, copied into the app's own folder so it survives the
+  /// original file being moved or deleted.
+  final String? imagePath;
+
   double get stockValue => stock * purchasePrice;
   bool get lowStock => stock <= minimumStock;
+
+  /// "Blue / M", or empty for a standalone product.
+  String get variantLabel =>
+      [color, size].where((v) => v.trim().isNotEmpty).join(' / ');
+
+  /// Name with the variant appended, for the cart and the invoice.
+  String get displayName =>
+      variantLabel.isEmpty ? name : '$name ($variantLabel)';
 }
 
 class CustomerRecord {
@@ -130,6 +239,8 @@ class CustomerRecord {
     required this.creditLimit,
     required this.openingBalance,
     required this.balance,
+    this.gstin = '',
+    this.stateCode = '',
   });
   final int id;
   final String name;
@@ -139,6 +250,14 @@ class CustomerRecord {
   final double creditLimit;
   final double openingBalance;
   double balance;
+
+  /// Present for registered buyers who need the invoice in their own name.
+  final String gstin;
+  final String stateCode;
+
+  String? get effectiveStateCode => stateCode.trim().isNotEmpty
+      ? stateCode.trim()
+      : stateCodeFromGstin(gstin);
 }
 
 class SupplierRecord {
@@ -167,40 +286,112 @@ class SaleRecord {
     required this.total,
     required this.profit,
     required this.createdAt,
+    this.taxableValue = 0,
+    this.cgst = 0,
+    this.sgst = 0,
+    this.igst = 0,
+    this.discountTotal = 0,
+    this.paymentMethod = 'cash',
+    this.cashAmount = 0,
+    this.cardAmount = 0,
+    this.upiAmount = 0,
+    this.customerGstin,
+    this.placeOfSupply,
   });
   final String receipt;
   final String customerName;
   final double total;
   final double profit;
   final DateTime createdAt;
+  final double taxableValue;
+  final double cgst;
+  final double sgst;
+  final double igst;
+  final double discountTotal;
+  final String paymentMethod;
+  final double cashAmount;
+  final double cardAmount;
+  final double upiAmount;
+  final String? customerGstin;
+  final String? placeOfSupply;
+
+  double get taxTotal => cgst + sgst + igst;
+  bool get isInterState => igst > 0;
 }
 
 class CartLine {
-  CartLine({required this.product, required this.quantity});
+  CartLine({required this.product, required this.quantity, this.discount = 0});
   final ProductRecord product;
   int quantity;
-  double get total => quantity * product.sellingPrice;
-  double get profit =>
-      quantity * (product.sellingPrice - product.purchasePrice);
+
+  /// Flat amount taken off this line, not a percentage.
+  double discount;
+
+  double get gross => quantity * product.sellingPrice;
+
+  /// What the customer pays for this line, discount applied.
+  double get total => (gross - discount).clamp(0, double.infinity).toDouble();
+  double get cost => quantity * product.purchasePrice;
+}
+
+/// Aggregated sales figures for one period.
+class SalesSummary {
+  const SalesSummary({
+    required this.total,
+    required this.profit,
+    required this.tax,
+    required this.cash,
+    required this.card,
+    required this.upi,
+    required this.count,
+  });
+
+  final double total;
+  final double profit;
+  final double tax;
+  final double cash;
+  final double card;
+  final double upi;
+  final int count;
+
+  static const empty = SalesSummary(
+    total: 0,
+    profit: 0,
+    tax: 0,
+    cash: 0,
+    card: 0,
+    upi: 0,
+    count: 0,
+  );
+
+  double get averageBill => count == 0 ? 0 : total / count;
+  double get marginPercent => total == 0 ? 0 : profit / total * 100;
 }
 
 class RetailStore extends ChangeNotifier {
   RetailStore(this._db);
 
   static const storeProfileKey = 'store_profile';
+  static const gstSettingsKey = 'gst_settings';
+  static const invoiceCounterKey = 'invoice_counter';
 
   final AppDatabase _db;
   AppUser? currentUser;
   StoreProfile? storeProfile;
+  GstSettings gstSettings = const GstSettings();
   final products = <ProductRecord>[];
+  final styles = <StyleRecord>[];
   final customers = <CustomerRecord>[];
   final suppliers = <SupplierRecord>[];
   final categoryNames = <String>[];
   final brandNames = <String>[];
   final unitNames = <String>[];
+  final sizeNames = <String>[];
+  final colorNames = <String>[];
   final sales = <SaleRecord>[];
   final cart = <CartLine>[];
   final auditLogs = <String>[];
+  final _styleRows = <ProductStyleRow>[];
   bool _initialized = false;
 
   bool get isAuthenticated => currentUser != null;
@@ -219,6 +410,53 @@ class RetailStore extends ChangeNotifier {
   Iterable<CustomerRecord> get pendingCustomers =>
       customers.where((customer) => customer.balance > 0);
 
+  /// Totals for an arbitrary window, so the dashboard and reports can ask for
+  /// today, this week or this month without each rolling their own loop.
+  SalesSummary summaryBetween(DateTime from, DateTime to) {
+    var total = 0.0, profit = 0.0, tax = 0.0, cash = 0.0, card = 0.0, upi = 0.0;
+    var count = 0;
+    for (final sale in sales) {
+      if (sale.createdAt.isBefore(from) || !sale.createdAt.isBefore(to)) {
+        continue;
+      }
+      total += sale.total;
+      profit += sale.profit;
+      tax += sale.taxTotal;
+      cash += sale.cashAmount;
+      card += sale.cardAmount;
+      upi += sale.upiAmount;
+      count++;
+    }
+    return SalesSummary(
+      total: total,
+      profit: profit,
+      tax: tax,
+      cash: cash,
+      card: card,
+      upi: upi,
+      count: count,
+    );
+  }
+
+  SalesSummary get todaySummary {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day);
+    return summaryBetween(start, start.add(const Duration(days: 1)));
+  }
+
+  SalesSummary get weekSummary {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final start = today.subtract(Duration(days: today.weekday - 1));
+    return summaryBetween(start, today.add(const Duration(days: 1)));
+  }
+
+  SalesSummary get monthSummary {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month);
+    return summaryBetween(start, DateTime(now.year, now.month + 1));
+  }
+
   Future<void> initialize() async {
     if (_initialized) return;
     await _seedFirstRunData();
@@ -229,6 +467,7 @@ class RetailStore extends ChangeNotifier {
   Future<void> refresh() async {
     await Future.wait([
       _loadStoreProfile(),
+      _loadGstSettings(),
       _loadLookups(),
       _loadSuppliers(),
       _loadProducts(),
@@ -236,6 +475,7 @@ class RetailStore extends ChangeNotifier {
       _loadSales(),
       _loadAuditLogs(),
     ]);
+    _rebuildStyles();
     notifyListeners();
   }
 
@@ -335,6 +575,14 @@ class RetailStore extends ChangeNotifier {
         ),
         expiryDate: Value(product.expiryDate),
         isActive: Value(product.active),
+        styleId: Value(product.styleId),
+        size: Value(product.size.trim().isEmpty ? null : product.size.trim()),
+        color: Value(
+          product.color.trim().isEmpty ? null : product.color.trim(),
+        ),
+        hsnCode: Value(
+          product.hsnCode.trim().isEmpty ? null : product.hsnCode.trim(),
+        ),
       );
       if (product.id == 0) {
         productId = await _db.into(_db.products).insert(companion);
@@ -378,6 +626,211 @@ class RetailStore extends ChangeNotifier {
     await saveProduct(product);
   }
 
+  /// Saves a design together with its whole size/colour run in one transaction.
+  ///
+  /// [variants] is the complete intended matrix. Cells that already exist are
+  /// updated, new cells are inserted, and cells the user cleared are
+  /// deactivated rather than deleted so historical sale lines keep resolving.
+  Future<int> saveStyle(
+    StyleRecord style, {
+    required List<ProductRecord> variants,
+  }) async {
+    late int styleId;
+    await _db.transaction(() async {
+      final unitId = await _ensureUnit(style.unit);
+      final categoryId = await _ensureCategory(style.category);
+      final brandId = await _ensureBrand(style.brand);
+      final supplierId = style.supplier.trim().isEmpty
+          ? null
+          : await _ensureSupplier(style.supplier);
+
+      final companion = ProductStylesCompanion(
+        styleCode: Value(style.styleCode.trim()),
+        name: Value(style.name.trim()),
+        description: Value(
+          style.description.trim().isEmpty ? null : style.description.trim(),
+        ),
+        categoryId: Value(categoryId),
+        brandId: Value(brandId),
+        unitId: Value(unitId),
+        supplierId: Value(supplierId),
+        hsnCode: Value(
+          style.hsnCode.trim().isEmpty ? null : style.hsnCode.trim(),
+        ),
+        season: Value(style.season.trim().isEmpty ? null : style.season.trim()),
+        purchasePrice: Value(style.purchasePrice),
+        sellingPrice: Value(style.sellingPrice),
+        isActive: Value(style.active),
+      );
+
+      if (style.id == 0) {
+        styleId = await _db.into(_db.productStyles).insert(companion);
+        await _audit(
+          'CREATE',
+          'product_styles',
+          styleId,
+          'Created style ${style.styleCode} ${style.name}',
+        );
+      } else {
+        styleId = style.id;
+        await (_db.update(
+          _db.productStyles,
+        )..where((s) => s.id.equals(styleId))).write(companion);
+        await _audit(
+          'UPDATE',
+          'product_styles',
+          styleId,
+          'Updated style ${style.styleCode} ${style.name}',
+        );
+      }
+
+      final existing = await (_db.select(
+        _db.products,
+      )..where((p) => p.styleId.equals(styleId))).get();
+      final keptIds = <int>{};
+
+      for (final variant in variants) {
+        final match = existing
+            .where(
+              (row) =>
+                  (row.size ?? '') == variant.size &&
+                  (row.color ?? '') == variant.color,
+            )
+            .firstOrNull;
+
+        final row = ProductsCompanion(
+          styleId: Value(styleId),
+          size: Value(variant.size.trim().isEmpty ? null : variant.size.trim()),
+          color: Value(
+            variant.color.trim().isEmpty ? null : variant.color.trim(),
+          ),
+          sku: Value(variant.sku.trim()),
+          barcode: Value(
+            variant.barcode.trim().isEmpty ? null : variant.barcode.trim(),
+          ),
+          name: Value(style.name.trim()),
+          description: Value(
+            style.description.trim().isEmpty ? null : style.description.trim(),
+          ),
+          categoryId: Value(categoryId),
+          brandId: Value(brandId),
+          unitId: Value(unitId),
+          supplierId: Value(supplierId),
+          hsnCode: Value(
+            style.hsnCode.trim().isEmpty ? null : style.hsnCode.trim(),
+          ),
+          purchasePrice: Value(variant.purchasePrice),
+          sellingPrice: Value(variant.sellingPrice),
+          taxRate: Value(variant.taxRate),
+          currentStock: Value(variant.stock),
+          minimumStock: Value(variant.minimumStock),
+          location: Value(
+            variant.location.trim().isEmpty ? null : variant.location.trim(),
+          ),
+          isActive: const Value(true),
+        );
+
+        if (match == null) {
+          final id = await _db.into(_db.products).insert(row);
+          keptIds.add(id);
+          if (variant.stock != 0) {
+            await _db
+                .into(_db.inventoryMovements)
+                .insert(
+                  InventoryMovementsCompanion.insert(
+                    productId: id,
+                    movementType: 'opening',
+                    quantity: variant.stock,
+                    referenceType: const Value('product_styles'),
+                    referenceId: Value(styleId),
+                  ),
+                );
+          }
+        } else {
+          keptIds.add(match.id);
+          await (_db.update(
+            _db.products,
+          )..where((p) => p.id.equals(match.id))).write(row);
+        }
+      }
+
+      for (final row in existing) {
+        if (keptIds.contains(row.id)) continue;
+        await (_db.update(_db.products)..where((p) => p.id.equals(row.id)))
+            .write(const ProductsCompanion(isActive: Value(false)));
+      }
+    });
+    await refresh();
+    return styleId;
+  }
+
+  /// Copies [sourcePath] into the app's own image folder and records it as the
+  /// product's primary image. Keeping our own copy means the picture survives
+  /// the shopkeeper moving or deleting the original file.
+  Future<String?> saveProductImage(int productId, String sourcePath) async {
+    final source = File(sourcePath);
+    if (!source.existsSync()) return null;
+    final directory = await _appDataDirectory();
+    final images = Directory(p.join(directory.path, 'product_images'));
+    if (!images.existsSync()) images.createSync(recursive: true);
+
+    final extension = p.extension(source.path).isEmpty
+        ? '.png'
+        : p.extension(source.path);
+    final target = File(
+      p.join(
+        images.path,
+        'product_${productId}_${DateTime.now().millisecondsSinceEpoch}$extension',
+      ),
+    );
+    await source.copy(target.path);
+
+    await _db.transaction(() async {
+      await (_db.update(_db.productImages)
+            ..where((i) => i.productId.equals(productId)))
+          .write(const ProductImagesCompanion(isPrimary: Value(false)));
+      await _db
+          .into(_db.productImages)
+          .insert(
+            ProductImagesCompanion.insert(
+              productId: productId,
+              filePath: target.path,
+              isPrimary: const Value(true),
+            ),
+          );
+    });
+    await refresh();
+    return target.path;
+  }
+
+  /// Every image on file for a product, primary first.
+  Future<List<String>> productImages(int productId) async {
+    final rows =
+        await (_db.select(_db.productImages)
+              ..where((i) => i.productId.equals(productId))
+              ..orderBy([
+                (i) => OrderingTerm.desc(i.isPrimary),
+                (i) => OrderingTerm.asc(i.id),
+              ]))
+            .get();
+    return rows.map((r) => r.filePath).toList();
+  }
+
+  Future<void> deleteProductImage(String filePath) async {
+    await (_db.delete(
+      _db.productImages,
+    )..where((i) => i.filePath.equals(filePath))).go();
+    final file = File(filePath);
+    if (file.existsSync()) {
+      try {
+        await file.delete();
+      } on FileSystemException {
+        // The row is gone either way; a locked file is not worth failing over.
+      }
+    }
+    await refresh();
+  }
+
   Future<int> saveCustomer(CustomerRecord customer) async {
     late int customerId;
     final companion = CustomersCompanion(
@@ -394,6 +847,14 @@ class RetailStore extends ChangeNotifier {
       creditLimit: Value(customer.creditLimit),
       openingBalance: Value(customer.openingBalance),
       currentBalance: Value(customer.balance),
+      gstin: Value(
+        customer.gstin.trim().isEmpty
+            ? null
+            : customer.gstin.trim().toUpperCase(),
+      ),
+      stateCode: Value(
+        customer.stateCode.trim().isEmpty ? null : customer.stateCode.trim(),
+      ),
     );
     if (customer.id == 0) {
       customerId = await _db.into(_db.customers).insert(companion);
@@ -481,23 +942,88 @@ class RetailStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The GST rate that applies to one unit of [product], honouring an explicit
+  /// per-product rate first and the price slabs second.
+  double gstRateFor(ProductRecord product) => gstSettings.rateFor(
+    unitPrice: product.sellingPrice,
+    productRate: product.taxRate,
+  );
+
+  /// Tax for a cart line as it would be charged to [customer].
+  GstLineTax lineTaxFor(CartLine line, {CustomerRecord? customer}) =>
+      computeLineTax(
+        lineTotal: line.total,
+        ratePercent: gstRateFor(line.product),
+        priceIncludesTax: gstSettings.pricesIncludeTax,
+        interState: _isInterState(customer),
+      );
+
+  /// A sale is inter-state when the buyer's state is known and differs from the
+  /// shop's. A walk-in with no state is treated as local.
+  bool _isInterState(CustomerRecord? customer) {
+    final shopState = storeProfile?.effectiveStateCode;
+    final buyerState = customer?.effectiveStateCode;
+    if (shopState == null || buyerState == null) return false;
+    return shopState != buyerState;
+  }
+
+  /// Grand total of the cart as the customer will pay it.
+  ///
+  /// With tax-inclusive pricing — the Indian retail norm — this is just the sum
+  /// of the line totals, because GST is already inside the shelf price. With
+  /// tax-exclusive pricing the tax is added on top.
+  double cartGrandTotal({CustomerRecord? customer}) {
+    var total = 0.0;
+    for (final line in cart) {
+      final tax = lineTaxFor(line, customer: customer);
+      total += gstSettings.pricesIncludeTax ? line.total : tax.grossValue;
+    }
+    return _money(total);
+  }
+
   Future<SaleRecord> checkout({
     CustomerRecord? customer,
     double paid = 0,
     String paymentMethod = 'cash',
     double cashAmount = 0,
     double cardAmount = 0,
+    double upiAmount = 0,
   }) async {
     final snapshot = List<CartLine>.from(cart);
-    final total = snapshot.fold(0.0, (sum, line) => sum + line.total);
-    final profit = snapshot.fold(0.0, (sum, line) => sum + line.profit);
-    final receiptPrefix =
-        storeProfile?.receiptNumberPrefix.trim().isNotEmpty == true
-        ? storeProfile!.receiptNumberPrefix.trim()
-        : 'R';
-    final receipt = '$receiptPrefix-${DateTime.now().millisecondsSinceEpoch}';
+    if (snapshot.isEmpty) {
+      throw StateError('Cannot check out an empty cart');
+    }
+    final taxes = [
+      for (final line in snapshot) lineTaxFor(line, customer: customer),
+    ];
+
+    var taxableTotal = 0.0, cgst = 0.0, sgst = 0.0, igst = 0.0;
+    var grandTotal = 0.0, discountTotal = 0.0, costTotal = 0.0;
+    for (var i = 0; i < snapshot.length; i++) {
+      final line = snapshot[i];
+      final tax = taxes[i];
+      taxableTotal += tax.taxableValue;
+      cgst += tax.cgst;
+      sgst += tax.sgst;
+      igst += tax.igst;
+      discountTotal += line.discount;
+      costTotal += line.cost;
+      grandTotal += gstSettings.pricesIncludeTax ? line.total : tax.grossValue;
+    }
+    taxableTotal = _money(taxableTotal);
+    cgst = _money(cgst);
+    sgst = _money(sgst);
+    igst = _money(igst);
+    grandTotal = _money(grandTotal);
+
+    // Profit is measured on the taxable value: GST collected belongs to the
+    // government, not the shop, so counting it as revenue overstates margin.
+    final profit = _money(taxableTotal - costTotal);
+    final soldAt = DateTime.now();
+
     late SaleRecord sale;
     await _db.transaction(() async {
+      final receipt = await _nextInvoiceNumber(soldAt);
       final saleId = await _db
           .into(_db.sales)
           .insert(
@@ -505,15 +1031,33 @@ class RetailStore extends ChangeNotifier {
               customerId: Value(customer?.id),
               userId: currentUser?.id ?? await _adminUserId(),
               receiptNumber: receipt,
-              subtotal: Value(total),
-              grandTotal: Value(total),
+              subtotal: Value(taxableTotal),
+              discountTotal: Value(_money(discountTotal)),
+              taxTotal: Value(_money(cgst + sgst + igst)),
+              grandTotal: Value(grandTotal),
               paidAmount: Value(paid),
               paymentMethod: Value(paymentMethod),
               cashAmount: Value(cashAmount),
               cardAmount: Value(cardAmount),
+              upiAmount: Value(upiAmount),
+              cgstTotal: Value(cgst),
+              sgstTotal: Value(sgst),
+              igstTotal: Value(igst),
+              placeOfSupply: Value(
+                customer?.effectiveStateCode ??
+                    storeProfile?.effectiveStateCode,
+              ),
+              customerGstin: Value(
+                (customer?.gstin.trim().isNotEmpty ?? false)
+                    ? customer!.gstin.trim()
+                    : null,
+              ),
+              soldAt: Value(soldAt),
             ),
           );
-      for (final line in snapshot) {
+      for (var i = 0; i < snapshot.length; i++) {
+        final line = snapshot[i];
+        final tax = taxes[i];
         await _db
             .into(_db.saleItems)
             .insert(
@@ -522,7 +1066,15 @@ class RetailStore extends ChangeNotifier {
                 productId: line.product.id,
                 quantity: line.quantity.toDouble(),
                 unitPrice: line.product.sellingPrice,
-                lineTotal: line.total,
+                discountAmount: Value(line.discount),
+                taxAmount: Value(tax.taxAmount),
+                lineTotal: gstSettings.pricesIncludeTax
+                    ? line.total
+                    : tax.grossValue,
+                hsnCode: Value(_hsnFor(line.product)),
+                taxRate: Value(tax.ratePercent),
+                taxableValue: Value(tax.taxableValue),
+                costPrice: Value(line.product.purchasePrice),
               ),
             );
         final after = line.product.stock - line.quantity;
@@ -541,12 +1093,12 @@ class RetailStore extends ChangeNotifier {
               ),
             );
       }
-      if (customer != null && paid < total) {
+      if (customer != null && paid < grandTotal) {
         await (_db.update(
           _db.customers,
         )..where((c) => c.id.equals(customer.id))).write(
           CustomersCompanion(
-            currentBalance: Value(customer.balance + total - paid),
+            currentBalance: Value(_money(customer.balance + grandTotal - paid)),
           ),
         );
       }
@@ -554,20 +1106,78 @@ class RetailStore extends ChangeNotifier {
         'CREATE',
         'sales',
         saleId,
-        'Completed $receipt for ${AppFormatters.currency(total)}',
+        'Completed $receipt for ${AppFormatters.currency(grandTotal)}',
       );
       sale = SaleRecord(
         receipt: receipt,
         customerName: customer?.name ?? 'Walk-in',
-        total: total,
+        total: grandTotal,
         profit: profit,
-        createdAt: DateTime.now(),
+        createdAt: soldAt,
+        taxableValue: taxableTotal,
+        cgst: cgst,
+        sgst: sgst,
+        igst: igst,
+        discountTotal: _money(discountTotal),
+        paymentMethod: paymentMethod,
+        cashAmount: cashAmount,
+        cardAmount: cardAmount,
+        upiAmount: upiAmount,
+        customerGstin: customer?.gstin,
+        placeOfSupply:
+            customer?.effectiveStateCode ?? storeProfile?.effectiveStateCode,
       );
     });
     cart.clear();
     await refresh();
     return sale;
   }
+
+  String _hsnFor(ProductRecord product) => product.hsnCode.trim().isNotEmpty
+      ? product.hsnCode.trim()
+      : gstSettings.defaultHsnCode;
+
+  /// Allocates the next invoice number inside the caller's transaction.
+  ///
+  /// Rule 46 wants a number that is unique and sequential within the financial
+  /// year, so the counter is stored in `Settings`, reset each April, and read
+  /// and written inside the sale's own transaction — two tills committing at
+  /// once cannot land on the same number.
+  Future<String> _nextInvoiceNumber(DateTime soldAt) async {
+    // The Indian financial year runs April to March, so anything before April
+    // still belongs to the year that started the previous April.
+    final startYear = soldAt.month >= 4 ? soldAt.year : soldAt.year - 1;
+    final label = '${startYear % 100}${(startYear + 1) % 100}'.padLeft(4, '0');
+
+    final row = await (_db.select(
+      _db.settings,
+    )..where((s) => s.key.equals(invoiceCounterKey))).getSingleOrNull();
+    final stored = row == null
+        ? <String, dynamic>{}
+        : jsonDecode(row.valueJson) as Map<String, dynamic>;
+    final storedLabel = stored['year'] as String?;
+    final next = (storedLabel == label ? (stored['seq'] as int? ?? 0) : 0) + 1;
+
+    await _db
+        .into(_db.settings)
+        .insertOnConflictUpdate(
+          SettingsCompanion.insert(
+            key: invoiceCounterKey,
+            valueJson: jsonEncode({'year': label, 'seq': next}),
+          ),
+        );
+
+    final prefix = storeProfile?.receiptNumberPrefix.trim().isNotEmpty == true
+        ? storeProfile!.receiptNumberPrefix.trim()
+        : 'INV';
+    // Rule 46 caps the invoice number at 16 characters.
+    final candidate = '$prefix/$label/${next.toString().padLeft(4, '0')}';
+    return candidate.length <= 16
+        ? candidate
+        : candidate.substring(candidate.length - 16);
+  }
+
+  static double _money(double value) => (value * 100).roundToDouble() / 100;
 
   Future<void> _seedFirstRunData() async {
     final rolesCount = await _db
@@ -629,6 +1239,35 @@ class RetailStore extends ChangeNotifier {
         : StoreProfile.fromJson(
             jsonDecode(row.valueJson) as Map<String, dynamic>,
           );
+    // Every screen and every printed document formats money through
+    // AppFormatters, so the configured symbol is applied once, here.
+    AppFormatters.configure(
+      symbol: storeProfile?.currencySymbol,
+      locale: storeProfile?.currencyLocale,
+    );
+  }
+
+  Future<void> _loadGstSettings() async {
+    final row = await (_db.select(
+      _db.settings,
+    )..where((s) => s.key.equals(gstSettingsKey))).getSingleOrNull();
+    gstSettings = row == null
+        ? const GstSettings()
+        : GstSettings.decode(row.valueJson);
+  }
+
+  Future<void> saveGstSettings(GstSettings settings) async {
+    await _db
+        .into(_db.settings)
+        .insertOnConflictUpdate(
+          SettingsCompanion.insert(
+            key: gstSettingsKey,
+            valueJson: settings.encode(),
+          ),
+        );
+    gstSettings = settings;
+    await _audit('UPSERT', 'settings', null, 'Updated GST settings');
+    notifyListeners();
   }
 
   Future<void> _loadLookups() async {
@@ -665,6 +1304,17 @@ class RetailStore extends ChangeNotifier {
     final suppliersById = {
       for (final s in await _db.select(_db.suppliers).get()) s.id: s.name,
     };
+    _styleRows
+      ..clear()
+      ..addAll(await _db.select(_db.productStyles).get());
+
+    final primaryImages = <int, String>{};
+    for (final image in await _db.select(_db.productImages).get()) {
+      if (image.isPrimary || !primaryImages.containsKey(image.productId)) {
+        primaryImages[image.productId] = image.filePath;
+      }
+    }
+
     final rows = await _db.select(_db.products).get();
     products
       ..clear()
@@ -691,8 +1341,60 @@ class RetailStore extends ChangeNotifier {
                 taxRate: p.taxRate,
                 maximumStock: p.maximumStock,
                 expiryDate: p.expiryDate,
+                styleId: p.styleId,
+                size: p.size ?? '',
+                color: p.color ?? '',
+                hsnCode: p.hsnCode ?? '',
+                imagePath: primaryImages[p.id],
               ),
             ),
+      );
+  }
+
+  /// Groups the loaded variants under their style so the matrix editor and the
+  /// catalogue can present one card per design.
+  void _rebuildStyles() {
+    final byStyle = <int, List<ProductRecord>>{};
+    for (final product in products) {
+      final styleId = product.styleId;
+      if (styleId == null) continue;
+      byStyle.putIfAbsent(styleId, () => <ProductRecord>[]).add(product);
+    }
+
+    styles
+      ..clear()
+      ..addAll(
+        _styleRows
+            .where((row) => row.isActive)
+            .map(
+              (row) => StyleRecord(
+                id: row.id,
+                styleCode: row.styleCode,
+                name: row.name,
+                description: row.description ?? '',
+                hsnCode: row.hsnCode ?? '',
+                season: row.season ?? '',
+                purchasePrice: row.purchasePrice,
+                sellingPrice: row.sellingPrice,
+                active: row.isActive,
+                variants: byStyle[row.id] ?? <ProductRecord>[],
+              ),
+            ),
+      );
+
+    sizeNames
+      ..clear()
+      ..addAll(
+        StyleRecord._distinct(
+          products.map((p) => p.size).where((s) => s.trim().isNotEmpty),
+        ),
+      );
+    colorNames
+      ..clear()
+      ..addAll(
+        StyleRecord._distinct(
+          products.map((p) => p.color).where((c) => c.trim().isNotEmpty),
+        ),
       );
   }
 
@@ -713,6 +1415,8 @@ class RetailStore extends ChangeNotifier {
             creditLimit: c.creditLimit,
             openingBalance: c.openingBalance,
             balance: c.currentBalance,
+            gstin: c.gstin ?? '',
+            stateCode: c.stateCode ?? '',
           ),
         ),
       );
@@ -746,6 +1450,20 @@ class RetailStore extends ChangeNotifier {
     final rows = await (_db.select(
       _db.sales,
     )..orderBy([(s) => OrderingTerm.desc(s.soldAt)])).get();
+
+    // Profit comes from the sale lines, which carry the cost captured at the
+    // time of sale. Falling back to zero here — as this used to — made every
+    // profit figure in the app read zero after a restart.
+    final profitBySale = <int, double>{};
+    for (final item in await _db.select(_db.saleItems).get()) {
+      final lineProfit = item.taxableValue - (item.costPrice * item.quantity);
+      profitBySale.update(
+        item.saleId,
+        (value) => value + lineProfit,
+        ifAbsent: () => lineProfit,
+      );
+    }
+
     sales
       ..clear()
       ..addAll(
@@ -754,8 +1472,19 @@ class RetailStore extends ChangeNotifier {
             receipt: s.receiptNumber,
             customerName: customerNames[s.customerId] ?? 'Walk-in',
             total: s.grandTotal,
-            profit: 0,
+            profit: _money(profitBySale[s.id] ?? 0),
             createdAt: s.soldAt,
+            taxableValue: s.subtotal,
+            cgst: s.cgstTotal,
+            sgst: s.sgstTotal,
+            igst: s.igstTotal,
+            discountTotal: s.discountTotal,
+            paymentMethod: s.paymentMethod,
+            cashAmount: s.cashAmount,
+            cardAmount: s.cardAmount,
+            upiAmount: s.upiAmount,
+            customerGstin: s.customerGstin,
+            placeOfSupply: s.placeOfSupply,
           ),
         ),
       );

@@ -1,18 +1,14 @@
-import 'dart:io';
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../../app/di/injection.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/section_card.dart';
+import '../data/invoice_document.dart';
 import '../data/repositories/pos_repository.dart';
 
-enum _PaymentMode { cash, card, split }
+enum _PaymentMode { cash, card, upi, split }
 
 class PosPage extends StatefulWidget {
   const PosPage({super.key});
@@ -30,6 +26,10 @@ class _PosPageState extends State<PosPage> {
   final _splitCard = TextEditingController();
   CustomerRecord? _selectedCustomer;
   _PaymentMode _paymentMode = _PaymentMode.cash;
+
+  /// Which paper the invoice is laid out for. 80 mm is the common counter
+  /// thermal roll, so it is the default.
+  InvoicePaper _paper = InvoicePaper.roll80;
   bool _checkingOut = false;
 
   @override
@@ -154,6 +154,23 @@ class _PosPageState extends State<PosPage> {
                         const SizedBox(height: 16),
                         _paymentPanel(total),
                         const SizedBox(height: 16),
+                        DropdownButtonFormField<InvoicePaper>(
+                          initialValue: _paper,
+                          decoration: const InputDecoration(
+                            labelText: 'Print on',
+                            prefixIcon: Icon(Icons.receipt_long),
+                          ),
+                          items: [
+                            for (final paper in InvoicePaper.values)
+                              DropdownMenuItem(
+                                value: paper,
+                                child: Text(paper.label),
+                              ),
+                          ],
+                          onChanged: (paper) =>
+                              setState(() => _paper = paper ?? _paper),
+                        ),
+                        const SizedBox(height: 16),
                         SizedBox(
                           width: double.infinity,
                           child: FilledButton.icon(
@@ -225,23 +242,24 @@ class _PosPageState extends State<PosPage> {
   }
 
   Widget _totalsPanel(double total) {
-    final subtotal = _store.cart.fold(
-      0.0,
-      (sum, line) => sum + line.quantity * line.product.sellingPrice,
-    );
-    final tax = _store.cart.fold(
-      0.0,
-      (sum, line) =>
-          sum +
-          line.quantity *
-              line.product.sellingPrice *
-              line.product.taxRate /
-              100,
-    );
+    // Taxes come from the store so the panel always agrees with what the sale
+    // will actually record — including the CGST/SGST versus IGST split.
+    var taxable = 0.0, cgst = 0.0, sgst = 0.0, igst = 0.0, discount = 0.0;
+    for (final line in _store.cart) {
+      final tax = _store.lineTaxFor(line, customer: _selectedCustomer);
+      taxable += tax.taxableValue;
+      cgst += tax.cgst;
+      sgst += tax.sgst;
+      igst += tax.igst;
+      discount += line.discount;
+    }
     return Column(
       children: [
-        _amountRow('Subtotal', subtotal),
-        _amountRow('Tax', tax),
+        _amountRow('Taxable value', taxable),
+        if (discount > 0) _amountRow('Discount', discount),
+        if (cgst > 0) _amountRow('CGST', cgst),
+        if (sgst > 0) _amountRow('SGST', sgst),
+        if (igst > 0) _amountRow('IGST', igst),
         const Divider(),
         _amountRow('Total', total, prominent: true),
       ],
@@ -266,6 +284,11 @@ class _PosPageState extends State<PosPage> {
               icon: Icon(Icons.credit_card),
             ),
             ButtonSegment(
+              value: _PaymentMode.upi,
+              label: Text('UPI'),
+              icon: Icon(Icons.qr_code_2),
+            ),
+            ButtonSegment(
               value: _PaymentMode.split,
               label: Text('Split'),
               icon: Icon(Icons.call_split),
@@ -284,6 +307,8 @@ class _PosPageState extends State<PosPage> {
           ),
         if (_paymentMode == _PaymentMode.card)
           const Text('Card payment will charge the full grand total.'),
+        if (_paymentMode == _PaymentMode.upi)
+          const Text('UPI payment will charge the full grand total.'),
         if (_paymentMode == _PaymentMode.split) ...[
           TextField(
             controller: _splitCash,
@@ -322,34 +347,40 @@ class _PosPageState extends State<PosPage> {
     ],
   );
 
-  double get _cartTotal =>
-      _store.cart.fold(0.0, (sum, line) => sum + line.total);
+  /// Grand total as the store will record it, so the button, the totals panel
+  /// and the saved sale can never disagree.
+  double get _cartTotal => _store.cartGrandTotal(customer: _selectedCustomer);
+
   double get _paidAmount => switch (_paymentMode) {
     _PaymentMode.cash => _parse(_cashTendered.text),
-    _PaymentMode.card => _cartTotal,
+    _PaymentMode.card || _PaymentMode.upi => _cartTotal,
     _PaymentMode.split => _parse(_splitCash.text) + _parse(_splitCard.text),
   };
   String get _paymentLabel => switch (_paymentMode) {
-    _PaymentMode.cash => 'Cash',
-    _PaymentMode.card => 'Card',
+    _PaymentMode.cash => 'Paid by cash',
+    _PaymentMode.card => 'Paid by card',
+    _PaymentMode.upi => 'Paid by UPI',
     _PaymentMode.split =>
       'Split: cash ${AppFormatters.currency(_parse(_splitCash.text))}, card ${AppFormatters.currency(_parse(_splitCard.text))}',
   };
   String get _paymentMethodValue => switch (_paymentMode) {
     _PaymentMode.cash => 'cash',
     _PaymentMode.card => 'card',
+    _PaymentMode.upi => 'upi',
     _PaymentMode.split => 'split',
   };
   double get _cashAmountForSale => switch (_paymentMode) {
     _PaymentMode.cash => _cartTotal,
-    _PaymentMode.card => 0,
+    _PaymentMode.card || _PaymentMode.upi => 0,
     _PaymentMode.split => _parse(_splitCash.text),
   };
   double get _cardAmountForSale => switch (_paymentMode) {
-    _PaymentMode.cash => 0,
+    _PaymentMode.cash || _PaymentMode.upi => 0,
     _PaymentMode.card => _cartTotal,
     _PaymentMode.split => _parse(_splitCard.text),
   };
+  double get _upiAmountForSale =>
+      _paymentMode == _PaymentMode.upi ? _cartTotal : 0;
 
   CustomerRecord? get _walkInCustomer {
     for (final customer in _store.customers) {
@@ -430,6 +461,7 @@ class _PosPageState extends State<PosPage> {
     final paymentMethod = _paymentMethodValue;
     final cashAmount = _cashAmountForSale;
     final cardAmount = _cardAmountForSale;
+    final upiAmount = _upiAmountForSale;
     setState(() => _checkingOut = true);
     try {
       final sale = await _posRepository.checkout(
@@ -438,18 +470,33 @@ class _PosPageState extends State<PosPage> {
         paymentMethod: paymentMethod,
         cashAmount: cashAmount,
         cardAmount: cardAmount,
+        upiAmount: upiAmount,
       );
       _resetPaymentInputs();
       if (!context.mounted) return;
+      final invoice = InvoiceData(
+        sale: sale,
+        lines: invoiceLinesFor(
+          cart: receiptLines,
+          settings: _store.gstSettings,
+          interState: sale.isInterState,
+          hsnFor: (product) => product.hsnCode.trim().isNotEmpty
+              ? product.hsnCode.trim()
+              : _store.gstSettings.defaultHsnCode,
+          rateFor: _store.gstRateFor,
+        ),
+        profile: _store.storeProfile,
+        paid: paid,
+        change: change,
+        paymentLabel: paymentLabel,
+        customerName: customer?.name,
+        customerPhone: customer?.phone,
+        customerAddress: customer?.address,
+      );
       await Printing.layoutPdf(
         name: sale.receipt,
-        onLayout: (_) => _buildReceiptPdf(
-          sale: sale,
-          lines: receiptLines,
-          paid: paid,
-          change: change,
-          paymentLabel: paymentLabel,
-        ),
+        format: _paper.format,
+        onLayout: (_) => buildInvoicePdf(data: invoice, paper: _paper),
       );
       if (!context.mounted) return;
       ScaffoldMessenger.of(
@@ -459,120 +506,4 @@ class _PosPageState extends State<PosPage> {
       if (mounted) setState(() => _checkingOut = false);
     }
   }
-
-  Future<Uint8List> _buildReceiptPdf({
-    required SaleRecord sale,
-    required List<CartLine> lines,
-    required double paid,
-    required double change,
-    required String paymentLabel,
-  }) async {
-    final profile = _store.storeProfile;
-    final document = pw.Document();
-    pw.MemoryImage? logo;
-    final logoPath = profile?.logoPath;
-    if (logoPath != null && logoPath.trim().isNotEmpty) {
-      final file = File(logoPath);
-      if (await file.exists()) logo = pw.MemoryImage(await file.readAsBytes());
-    }
-    final subtotal = lines.fold(
-      0.0,
-      (sum, line) => sum + line.quantity * line.product.sellingPrice,
-    );
-    final tax = lines.fold(
-      0.0,
-      (sum, line) =>
-          sum +
-          line.quantity *
-              line.product.sellingPrice *
-              line.product.taxRate /
-              100,
-    );
-    document.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.letter,
-        build: (context) => [
-          pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              if (logo != null)
-                pw.Container(
-                  width: 72,
-                  height: 72,
-                  margin: const pw.EdgeInsets.only(right: 16),
-                  child: pw.Image(logo, fit: pw.BoxFit.contain),
-                ),
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(
-                      profile?.storeName ?? 'RetailPro',
-                      style: pw.TextStyle(
-                        fontSize: 20,
-                        fontWeight: pw.FontWeight.bold,
-                      ),
-                    ),
-                    if ((profile?.address ?? '').isNotEmpty)
-                      pw.Text(profile!.address!),
-                    if ((profile?.phone ?? '').isNotEmpty)
-                      pw.Text('Phone: ${profile!.phone!}'),
-                  ],
-                ),
-              ),
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                children: [
-                  pw.Text('Receipt ${sale.receipt}'),
-                  pw.Text(AppFormatters.dateTime(sale.createdAt)),
-                  pw.Text('Customer: ${sale.customerName}'),
-                ],
-              ),
-            ],
-          ),
-          pw.SizedBox(height: 24),
-          pw.TableHelper.fromTextArray(
-            headers: ['Item', 'Qty', 'Unit', 'Line total'],
-            data: lines
-                .map(
-                  (line) => [
-                    line.product.name,
-                    line.quantity.toString(),
-                    AppFormatters.currency(line.product.sellingPrice),
-                    AppFormatters.currency(line.total),
-                  ],
-                )
-                .toList(),
-          ),
-          pw.SizedBox(height: 16),
-          pw.Align(
-            alignment: pw.Alignment.centerRight,
-            child: pw.SizedBox(
-              width: 220,
-              child: pw.Column(
-                children: [
-                  _pdfAmountRow('Subtotal', subtotal),
-                  _pdfAmountRow('Tax', tax),
-                  _pdfAmountRow('Total', sale.total),
-                  _pdfAmountRow('Paid', paid),
-                  _pdfAmountRow('Change due', change),
-                  pw.SizedBox(height: 6),
-                  pw.Text(paymentLabel),
-                ],
-              ),
-            ),
-          ),
-          pw.SizedBox(height: 32),
-          if ((profile?.receiptFooterText ?? '').isNotEmpty)
-            pw.Center(child: pw.Text(profile!.receiptFooterText!)),
-        ],
-      ),
-    );
-    return document.save();
-  }
-
-  pw.Widget _pdfAmountRow(String label, double amount) => pw.Row(
-    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-    children: [pw.Text(label), pw.Text(AppFormatters.currency(amount))],
-  );
 }

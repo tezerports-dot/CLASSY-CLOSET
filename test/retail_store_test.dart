@@ -107,9 +107,12 @@ void main() {
         cardAmount: 8,
       );
 
-      expect(sale.receipt, startsWith('CC-'));
+      // Gapless sequence within the Indian financial year, per Rule 46.
+      expect(sale.receipt, matches(RegExp(r'^CC/\d{4}/0001$')));
       expect(sale.total, 20);
-      expect(sale.profit, 8);
+      // Shelf prices include GST, so profit is measured on the taxable value:
+      // 20 gross at 5% is 19.05 taxable, less 12 cost.
+      expect(sale.profit, closeTo(7.05, 0.01));
       expect(store.cart, isEmpty);
 
       final row = await db.select(db.sales).getSingle();
@@ -165,4 +168,215 @@ void main() {
 
     expect(store.customers.firstWhere((c) => c.id == customer.id).balance, 15);
   });
+
+  test('invoice numbers run in an unbroken sequence', () async {
+    await store.initialize();
+    await store.login('admin', 'admin123');
+    await store.saveStoreProfile(
+      const StoreProfile(
+        storeName: 'Classy Closet',
+        currencySymbol: '₹',
+        receiptNumberPrefix: 'CC',
+      ),
+    );
+    await store.saveProduct(_shirt());
+
+    final numbers = <String>[];
+    for (var i = 0; i < 3; i++) {
+      store.addToCart(store.products.single);
+      numbers.add((await store.checkout(paid: 500, cashAmount: 500)).receipt);
+    }
+
+    expect(numbers[0], endsWith('/0001'));
+    expect(numbers[1], endsWith('/0002'));
+    expect(numbers[2], endsWith('/0003'));
+    expect(numbers.toSet(), hasLength(3));
+    // Rule 46 caps the invoice number at 16 characters.
+    expect(numbers.every((n) => n.length <= 16), isTrue);
+  });
+
+  test(
+    'a style saves its whole size and colour run as separate units',
+    () async {
+      await store.initialize();
+      await store.login('admin', 'admin123');
+
+      final styleId = await store.saveStyle(
+        StyleRecord(
+          id: 0,
+          styleCode: 'CC-KURTA-01',
+          name: 'Cotton Kurta',
+          category: 'Kurta',
+          brand: 'Classy',
+          unit: 'pcs',
+          hsnCode: '6206',
+          sellingPrice: 899,
+          purchasePrice: 450,
+        ),
+        variants: [
+          for (final color in ['Blue', 'Red'])
+            for (final size in ['S', 'M', 'L'])
+              ProductRecord(
+                id: 0,
+                sku: 'CC-KURTA-01-$color-$size',
+                name: 'Cotton Kurta',
+                category: 'Kurta',
+                brand: 'Classy',
+                unit: 'pcs',
+                stock: 4,
+                minimumStock: 1,
+                purchasePrice: 450,
+                sellingPrice: 899,
+                barcode: 'BC-$color-$size',
+                location: 'R1',
+                size: size,
+                color: color,
+              ),
+        ],
+      );
+
+      expect(styleId, greaterThan(0));
+      final style = store.styles.single;
+      expect(style.styleCode, 'CC-KURTA-01');
+      expect(style.variants, hasLength(6));
+      expect(style.sizes, ['S', 'M', 'L']);
+      expect(style.colors, ['Blue', 'Red']);
+      expect(style.totalStock, 24);
+      expect(style.variantAt('Blue', 'M')?.sku, 'CC-KURTA-01-Blue-M');
+      expect(
+        style.variantAt('Blue', 'M')?.displayName,
+        'Cotton Kurta (Blue / M)',
+      );
+      // The HSN code set on the design flows down to every unit under it.
+      expect(store.products.every((p) => p.hsnCode == '6206'), isTrue);
+    },
+  );
+
+  test(
+    'removing a cell from the matrix retires it instead of deleting it',
+    () async {
+      await store.initialize();
+      await store.login('admin', 'admin123');
+
+      ProductRecord cell(String size) => ProductRecord(
+        id: 0,
+        sku: 'ST-$size',
+        name: 'Tee',
+        category: 'Tops',
+        brand: 'Classy',
+        unit: 'pcs',
+        stock: 2,
+        minimumStock: 1,
+        purchasePrice: 100,
+        sellingPrice: 300,
+        barcode: 'BC-$size',
+        location: '',
+        size: size,
+        color: 'Black',
+      );
+
+      final style = StyleRecord(id: 0, styleCode: 'ST-1', name: 'Tee');
+      final id = await store.saveStyle(
+        style,
+        variants: [cell('S'), cell('M'), cell('L')],
+      );
+      expect(store.styles.single.variants, hasLength(3));
+
+      await store.saveStyle(
+        StyleRecord(id: id, styleCode: 'ST-1', name: 'Tee'),
+        variants: [cell('S'), cell('M')],
+      );
+
+      expect(store.styles.single.variants, hasLength(2));
+      // The retired row is still on disk so old sale lines keep resolving.
+      final allRows = await db.select(db.products).get();
+      expect(allRows, hasLength(3));
+      expect(allRows.where((r) => !r.isActive), hasLength(1));
+    },
+  );
+
+  test(
+    'a buyer in another state is charged IGST instead of CGST and SGST',
+    () async {
+      await store.initialize();
+      await store.login('admin', 'admin123');
+      await store.saveStoreProfile(
+        const StoreProfile(
+          storeName: 'Classy Closet',
+          currencySymbol: '₹',
+          gstin: '27AAPFU0939F1ZV', // Maharashtra
+        ),
+      );
+      await store.saveProduct(_shirt());
+      await store.saveCustomer(
+        CustomerRecord(
+          id: 0,
+          name: 'Outstation Buyer',
+          phone: '',
+          email: '',
+          address: '',
+          creditLimit: 0,
+          openingBalance: 0,
+          balance: 0,
+          gstin: '29AAPFU0939F1ZV', // Karnataka
+        ),
+      );
+      final buyer = store.customers.firstWhere(
+        (c) => c.name == 'Outstation Buyer',
+      );
+
+      store.addToCart(store.products.single);
+      final sale = await store.checkout(
+        customer: buyer,
+        paid: 500,
+        cashAmount: 500,
+      );
+
+      expect(sale.isInterState, isTrue);
+      expect(sale.igst, greaterThan(0));
+      expect(sale.cgst, 0);
+      expect(sale.sgst, 0);
+      expect(sale.customerGstin, '29AAPFU0939F1ZV');
+      expect(sale.placeOfSupply, '29');
+    },
+  );
+
+  test(
+    'period summaries roll up sales, profit and the payment split',
+    () async {
+      await store.initialize();
+      await store.login('admin', 'admin123');
+      await store.saveProduct(_shirt());
+
+      store.addToCart(store.products.single);
+      await store.checkout(paid: 500, paymentMethod: 'cash', cashAmount: 500);
+      store.addToCart(store.products.single);
+      await store.checkout(paid: 500, paymentMethod: 'card', cardAmount: 500);
+
+      final today = store.todaySummary;
+      expect(today.count, 2);
+      expect(today.total, closeTo(1000, 0.01));
+      expect(today.cash, closeTo(500, 0.01));
+      expect(today.card, closeTo(500, 0.01));
+      // Two shirts at 500 inclusive of 5%: 952.38 taxable less 600 cost.
+      expect(today.profit, closeTo(352.38, 0.05));
+      expect(store.monthSummary.count, 2);
+    },
+  );
 }
+
+/// A single 500-rupee shirt, which sits in the 5% slab.
+ProductRecord _shirt() => ProductRecord(
+  id: 0,
+  sku: 'SKU-SHIRT',
+  name: 'Cotton Shirt',
+  category: 'Apparel',
+  brand: 'Classy',
+  unit: 'pcs',
+  stock: 50,
+  minimumStock: 2,
+  purchasePrice: 300,
+  sellingPrice: 500,
+  barcode: '111222333',
+  location: 'A1',
+);

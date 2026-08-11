@@ -14,11 +14,13 @@ class PosRepository {
     required String paymentMethod,
     required double cashAmount,
     required double cardAmount,
+    double upiAmount = 0,
   }) => _store.checkout(
     customer: customer,
     paid: paid,
     paymentMethod: paymentMethod,
     cashAmount: cashAmount,
     cardAmount: cardAmount,
+    upiAmount: upiAmount,
   );
 }

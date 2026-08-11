@@ -81,9 +81,42 @@ class Suppliers extends Table {
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
 }
 
+/// A design — the thing a customer points at. Its sellable units live in
+/// [Products], one row per size/colour combination, so a single style can carry
+/// a whole size run without duplicating the design's own attributes.
+@DataClassName('ProductStyleRow')
+class ProductStyles extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get styleCode => text().unique().withLength(min: 1, max: 64)();
+  TextColumn get name => text().withLength(min: 1, max: 180)();
+  TextColumn get description => text().nullable()();
+  IntColumn get categoryId =>
+      integer().nullable().references(Categories, #id)();
+  IntColumn get brandId => integer().nullable().references(Brands, #id)();
+  IntColumn get unitId => integer().references(Units, #id)();
+  IntColumn get supplierId => integer().nullable().references(Suppliers, #id)();
+
+  /// Harmonised System code printed on the GST invoice. Chapter 61 covers
+  /// knitted apparel, 62 woven.
+  TextColumn get hsnCode => text().nullable()();
+  TextColumn get season => text().nullable()();
+  RealColumn get purchasePrice => real().withDefault(const Constant(0))();
+  RealColumn get sellingPrice => real().withDefault(const Constant(0))();
+  BoolColumn get isActive => boolean().withDefault(const Constant(true))();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+}
+
 @DataClassName('ProductRow')
 class Products extends Table {
   IntColumn get id => integer().autoIncrement()();
+
+  /// The design this unit belongs to. Null means a standalone item that has no
+  /// size or colour run of its own.
+  IntColumn get styleId =>
+      integer().nullable().references(ProductStyles, #id)();
+  TextColumn get size => text().nullable()();
+  TextColumn get color => text().nullable()();
+  TextColumn get hsnCode => text().nullable()();
   TextColumn get sku => text().unique().withLength(min: 1, max: 64)();
   TextColumn get barcode => text().nullable().unique()();
   TextColumn get qrCode => text().nullable()();
@@ -126,6 +159,11 @@ class Customers extends Table {
   RealColumn get openingBalance => real().withDefault(const Constant(0))();
   RealColumn get currentBalance => real().withDefault(const Constant(0))();
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
+
+  /// Set for B2B buyers so the invoice can carry their GSTIN. The state code
+  /// decides whether a sale is taxed as CGST+SGST or as IGST.
+  TextColumn get gstin => text().nullable()();
+  TextColumn get stateCode => text().nullable()();
 }
 
 @DataClassName('InventoryMovementRow')
@@ -178,6 +216,15 @@ class Sales extends Table {
   TextColumn get paymentMethod => text().withDefault(const Constant('cash'))();
   RealColumn get cashAmount => real().withDefault(const Constant(0))();
   RealColumn get cardAmount => real().withDefault(const Constant(0))();
+  RealColumn get upiAmount => real().withDefault(const Constant(0))();
+
+  /// GST is split at sale time and stored, so a reprinted invoice always shows
+  /// the tax that was actually charged even if rates change later.
+  RealColumn get cgstTotal => real().withDefault(const Constant(0))();
+  RealColumn get sgstTotal => real().withDefault(const Constant(0))();
+  RealColumn get igstTotal => real().withDefault(const Constant(0))();
+  TextColumn get placeOfSupply => text().nullable()();
+  TextColumn get customerGstin => text().nullable()();
   DateTimeColumn get soldAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -192,6 +239,16 @@ class SaleItems extends Table {
   RealColumn get discountAmount => real().withDefault(const Constant(0))();
   RealColumn get taxAmount => real().withDefault(const Constant(0))();
   RealColumn get lineTotal => real()();
+
+  /// Denormalised at sale time: Rule 46 requires the HSN code and rate that
+  /// applied to each line, and both can change after the sale.
+  TextColumn get hsnCode => text().nullable()();
+  RealColumn get taxRate => real().withDefault(const Constant(0))();
+  RealColumn get taxableValue => real().withDefault(const Constant(0))();
+
+  /// Cost at the moment of sale, so profit reporting never depends on the
+  /// product's current purchase price.
+  RealColumn get costPrice => real().withDefault(const Constant(0))();
 }
 
 @DataClassName('ReturnRow')
@@ -292,6 +349,7 @@ class Settings extends Table {
     Categories,
     Brands,
     Units,
+    ProductStyles,
     Products,
     ProductImages,
     Customers,
@@ -320,11 +378,33 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.withExecutor(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async => m.createAll(),
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        // v2 adds the style/size/colour matrix, HSN codes and the GST split.
+        await m.createTable(productStyles);
+        await m.addColumn(products, products.styleId);
+        await m.addColumn(products, products.size);
+        await m.addColumn(products, products.color);
+        await m.addColumn(products, products.hsnCode);
+        await m.addColumn(customers, customers.gstin);
+        await m.addColumn(customers, customers.stateCode);
+        await m.addColumn(sales, sales.upiAmount);
+        await m.addColumn(sales, sales.cgstTotal);
+        await m.addColumn(sales, sales.sgstTotal);
+        await m.addColumn(sales, sales.igstTotal);
+        await m.addColumn(sales, sales.placeOfSupply);
+        await m.addColumn(sales, sales.customerGstin);
+        await m.addColumn(saleItems, saleItems.hsnCode);
+        await m.addColumn(saleItems, saleItems.taxRate);
+        await m.addColumn(saleItems, saleItems.taxableValue);
+        await m.addColumn(saleItems, saleItems.costPrice);
+      }
+    },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');
     },
