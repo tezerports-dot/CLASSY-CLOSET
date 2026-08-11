@@ -169,6 +169,29 @@ Click **Save store profile**.
 > **Change this password before the shop opens.** These are starter
 > credentials, and anyone who knows them can open your till.
 
+### 7c. Set your GST rates
+
+Go to **Settings → GST**. This is where you type in the rates your accountant
+gives you — nothing is fixed in the program.
+
+- **Charge GST on sales** — turn off if the shop is not GST registered.
+- **Selling prices already include GST** — leave this **on** for normal Indian
+  retail, where the tag price is what the customer pays and the tax is worked
+  backwards out of it. Turn it off only if you add tax on top at the counter.
+- **Default HSN code** — used when a design has no HSN of its own.
+- **Rate bands** — each row says "up to this price for one piece → this rate".
+  Leave the last row's price empty so it catches everything above.
+
+The app starts with the current apparel bands (5% up to ₹2,500 a piece, 18%
+above), but **check these with your accountant and change them if needed**. As
+you type, the screen shows worked examples — ₹499 → 5%, ₹3,200 → 18% — so you
+can see the effect before saving.
+
+Click **Save GST settings**.
+
+> The rate is decided by the price of **one piece**, not the bill total. Three
+> ₹800 shirts are still taxed at the ₹800 band.
+
 ---
 
 ## Step 8 — Put your stock in
@@ -267,19 +290,28 @@ To get there quickly: press <kbd>Windows</kbd>+<kbd>R</kbd>, type
 
 ### Backing up
 
-**There is no backup button in the app yet.** Until there is, do this once a
-week:
+**Do this at the end of every trading day.** It takes ten seconds.
 
-1. **Close RetailPro.** Copying the file while the app is open can produce a
-   damaged copy.
-2. Open the folder above.
-3. Copy the whole `ClassyCloset` folder to a pen drive or an external disk.
-4. Keep the last few copies, named by date — `ClassyCloset-2026-08-11`.
+1. Go to **Settings → Backup & restore**.
+2. Click **Back up now**.
+3. Choose where to save it — a pen drive or an external disk, **not** this PC.
+   A PC that dies takes its own backups with it.
+4. The app suggests a dated filename like `retailpro-backup-2026-08-11-1930.zip`.
+   Keep the last few weeks' worth.
 
-To restore: close the app, and copy the folder back.
+The zip holds your database, the shop logo and every product photo. It is an
+ordinary zip — you can open it in Windows Explorer to check it is not empty.
 
-> Losing this file means losing every sale, every product and every customer
-> balance. A pen drive costs less than one day's takings.
+### Restoring
+
+1. Go to **Settings → Backup & restore**.
+2. Click **Restore from a backup** and choose the zip.
+3. The app checks the file really is a RetailPro backup before doing anything.
+4. Confirm. Your current data is copied aside first, so this can be undone.
+5. **Close and reopen RetailPro** to finish.
+
+> Restoring replaces everything currently in the app. Only do it if the
+> current data is lost or wrong.
 
 ### Reaching the shop PC from home
 
@@ -328,7 +360,6 @@ Your data is untouched — it lives outside the project folder.
 
 Be aware of these before you rely on the app for the whole shop:
 
-- **No backup button.** Copy the folder by hand, as above.
 - **No returns or exchanges.** The most common apparel transaction after a
   sale cannot be recorded yet.
 - **No cashier shift or day-end (X/Z) report.** Cash has to be counted against
@@ -344,7 +375,8 @@ Be aware of these before you rely on the app for the whole shop:
 The GST calculation, the invoice numbering and the tax invoice layout **are**
 finished and tested.
 
-> **One thing to confirm with your accountant:** the app defaults to the GST
-> 2.0 apparel rates in force from 22 September 2025 — 5% at or below ₹2,500 a
-> piece and 18% above. Check those still apply to what you sell before your
-> first bill. You can change them in the app without a new build.
+> **Set your GST rates before the first bill.** Go to **Settings → GST**. The
+> app starts with the GST 2.0 apparel bands — 5% at or below ₹2,500 a piece,
+> 18% above — but you should confirm those with your accountant and type in
+> whatever they tell you. The screen shows worked examples as you type, so you
+> can see the effect before saving. No new build is needed to change a rate.
