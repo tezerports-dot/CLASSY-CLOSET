@@ -1,6 +1,7 @@
 import 'package:get_it/get_it.dart';
 
 import '../../core/database/app_database.dart';
+import '../../core/services/backup_service.dart';
 import '../../core/services/retail_store.dart';
 import '../../features/auth/data/repositories/auth_repository.dart';
 import '../../features/customers/data/repositories/customers_repository.dart';
@@ -17,6 +18,11 @@ Future<void> configureDependencies() async {
   if (!getIt.isRegistered<RetailStore>()) {
     getIt.registerLazySingleton<RetailStore>(
       () => RetailStore(getIt<AppDatabase>()),
+    );
+  }
+  if (!getIt.isRegistered<BackupService>()) {
+    getIt.registerLazySingleton<BackupService>(
+      () => BackupService(getIt<AppDatabase>()),
     );
   }
   if (!getIt.isRegistered<AuthRepository>()) {

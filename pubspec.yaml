@@ -38,6 +38,10 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # Used by the backup tests to redirect path_provider at a scratch folder, so
+  # a test run can never touch a real installation's data.
+  path_provider_platform_interface: ^2.1.2
+  plugin_platform_interface: ^2.1.8
   build_runner: ^2.4.12
   drift_dev: ^2.20.1
   injectable_generator: ^2.6.2
