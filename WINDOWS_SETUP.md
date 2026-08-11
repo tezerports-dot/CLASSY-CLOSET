@@ -166,8 +166,39 @@ Click **Save store profile**.
 - Username: `admin`
 - Password: `admin123`
 
-> **Change this password before the shop opens.** These are starter
-> credentials, and anyone who knows them can open your till.
+> **Change this password before the shop opens.** Go to **Settings → Your
+> password**, enter `admin123` as the current password and set your own.
+> Anyone who knows the starter credentials can open your till.
+
+### 7b-2. Add your employee
+
+Go to **Staff → Add staff**.
+
+1. **Full name** and a **username** they will type to sign in.
+2. A **password** of at least 4 characters — tell them, and let them change it
+   later under Settings.
+3. **Role** — pick **Cashier** for a shop employee.
+
+The dialog lists exactly what the chosen role can do before you save. The
+**Staff** page also has a full table of every role against every permission.
+
+**What a Cashier can and cannot do:**
+
+| Can | Cannot |
+| --- | --- |
+| Ring up sales and print bills | See profit, margin or GST collected |
+| Search and scan products | See stock value |
+| See prices and stock levels | Add or change designs, stock or prices |
+| Add and edit customers | Open Reports |
+| See the day's takings, to count the drawer | Open Settings or change GST rates |
+| | Manage staff or take backups |
+
+They will not even see those menu items — and typing the address directly does
+not get them in either, so there is no way around it.
+
+> Use **Manager** instead if you want someone who runs the shop and sees the
+> numbers, but still cannot change settings or add staff. Switch an account off
+> with **Account is active** when someone leaves; their past sales stay intact.
 
 ### 7c. Set your GST rates
 
@@ -364,8 +395,6 @@ Be aware of these before you rely on the app for the whole shop:
   sale cannot be recorded yet.
 - **No cashier shift or day-end (X/Z) report.** Cash has to be counted against
   the sales list by hand.
-- **Permissions are not enforced.** Anyone who logs in can reach every screen,
-  including reports.
 - **No purchase orders or goods receipt.** New stock is added by editing the
   design.
 - **Printing goes through the Windows print dialog.** Direct thermal printing
