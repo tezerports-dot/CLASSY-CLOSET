@@ -47,7 +47,7 @@ class _ProductsPageState extends State<ProductsPage> {
                     ],
                     rows: [
                       for (final p in rows)
-                        DataRow(color: p.lowStock ? WidgetStateProperty.all(Colors.orange.withOpacity(.08)) : null, cells: [
+                        DataRow(color: p.lowStock ? WidgetStateProperty.all(Colors.orange.withValues(alpha: .08)) : null, cells: [
                           DataCell(Text(p.sku)),
                           DataCell(InkWell(onTap: () => _openForm(p), child: Text(p.name))),
                           DataCell(Text('${p.category} / ${p.brand}')),

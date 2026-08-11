@@ -146,7 +146,7 @@ class _PosPageState extends State<PosPage> {
       TextField(controller: _customerSearch, decoration: const InputDecoration(labelText: 'Search customer', prefixIcon: Icon(Icons.search)), onChanged: (_) => setState(() {})),
       const SizedBox(height: 8),
       DropdownButtonFormField<CustomerRecord>(
-        value: _selectedCustomer,
+        initialValue: _selectedCustomer,
         decoration: const InputDecoration(labelText: 'Customer'),
         items: filtered.map((customer) => DropdownMenuItem(value: customer, child: Text(customer.name))).toList(),
         onChanged: (customer) => setState(() => _selectedCustomer = customer),
@@ -207,15 +207,31 @@ class _PosPageState extends State<PosPage> {
     return _store.customers.isEmpty ? null : _store.customers.first;
   }
 
+  /// [RetailStore.refresh] rebuilds [RetailStore.customers] with new instances, so the previous
+  /// selection is matched by id and swapped for the live record. Returning the stale instance
+  /// would leave the dropdown holding a value that is not identical to any of its items, which
+  /// trips the `DropdownButtonFormField` "exactly one item with value" assertion on the next build.
   CustomerRecord? _resolveSelectedCustomer(CustomerRecord? selected, CustomerRecord? walkIn) {
-    if (selected != null && _store.customers.any((customer) => customer.id == selected.id)) return selected;
+    if (selected == null) return walkIn;
+    for (final customer in _store.customers) {
+      if (customer.id == selected.id) return customer;
+    }
     return walkIn;
   }
 
+  /// Called from [build], so the controller writes are deferred to the end of the frame: the
+  /// controllers have listeners that call [setState], which cannot run while the tree is building.
   void _syncPaymentDefaults(double total) {
-    final formattedTotal = total == 0 ? '' : total.toStringAsFixed(2);
-    if (_paymentMode == _PaymentMode.cash && _cashTendered.text.isEmpty && total > 0) _cashTendered.text = formattedTotal;
-    if (_paymentMode == _PaymentMode.split && _splitCard.text.isEmpty && _splitCash.text.isEmpty && total > 0) _splitCard.text = formattedTotal;
+    if (total <= 0) return;
+    final needsCash = _paymentMode == _PaymentMode.cash && _cashTendered.text.isEmpty;
+    final needsSplit = _paymentMode == _PaymentMode.split && _splitCard.text.isEmpty && _splitCash.text.isEmpty;
+    if (!needsCash && !needsSplit) return;
+    final formattedTotal = total.toStringAsFixed(2);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (needsCash && _cashTendered.text.isEmpty) _cashTendered.text = formattedTotal;
+      if (needsSplit && _splitCard.text.isEmpty && _splitCash.text.isEmpty) _splitCard.text = formattedTotal;
+    });
   }
 
   bool _canCheckout(double total) {
@@ -231,6 +247,14 @@ class _PosPageState extends State<PosPage> {
     if (mounted) setState(() {});
   }
 
+  /// The cart is emptied by the checkout, so the amounts tendered for the sale that just
+  /// completed must not carry over into the next one.
+  void _resetPaymentInputs() {
+    _cashTendered.clear();
+    _splitCash.clear();
+    _splitCard.clear();
+  }
+
   Future<void> _checkout(BuildContext context) async {
     final receiptLines = List<CartLine>.from(_store.cart);
     final customer = _selectedCustomer;
@@ -243,6 +267,7 @@ class _PosPageState extends State<PosPage> {
     setState(() => _checkingOut = true);
     try {
       final sale = await _posRepository.checkout(customer: customer, paid: paid, paymentMethod: paymentMethod, cashAmount: cashAmount, cardAmount: cardAmount);
+      _resetPaymentInputs();
       if (!context.mounted) return;
       await Printing.layoutPdf(name: sale.receipt, onLayout: (_) => _buildReceiptPdf(sale: sale, lines: receiptLines, paid: paid, change: change, paymentLabel: paymentLabel));
       if (!context.mounted) return;

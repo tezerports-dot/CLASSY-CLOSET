@@ -108,7 +108,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
-          Expanded(child: DropdownButtonFormField<String>(value: value, decoration: InputDecoration(labelText: label), items: [for (final option in normalized) DropdownMenuItem(value: option, child: Text(option))], onChanged: (value) => setState(() => controller.text = value ?? controller.text))),
+          Expanded(child: DropdownButtonFormField<String>(initialValue: value, decoration: InputDecoration(labelText: label), items: [for (final option in normalized) DropdownMenuItem(value: option, child: Text(option))], onChanged: (value) => setState(() => controller.text = value ?? controller.text))),
           const SizedBox(width: 8),
           Expanded(child: TextFormField(controller: controller, decoration: InputDecoration(labelText: 'New/existing $label'), validator: required ? Validators.requiredText : null)),
         ],
