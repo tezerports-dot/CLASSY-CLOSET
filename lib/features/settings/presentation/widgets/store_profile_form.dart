@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../../../../core/services/gst.dart';
 import '../../../../core/services/retail_store.dart';
 import '../../../../core/utils/validators.dart';
 
@@ -29,7 +30,9 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
   late final TextEditingController _currencySymbol;
   late final TextEditingController _receiptFooterText;
   late final TextEditingController _receiptNumberPrefix;
+  late final TextEditingController _gstin;
   String? _logoPath;
+  String? _stateCode;
 
   @override
   void initState() {
@@ -43,8 +46,10 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
       text: profile?.taxRegistrationNumber ?? '',
     );
     _currencySymbol = TextEditingController(
-      text: profile?.currencySymbol ?? r'$',
+      text: profile?.currencySymbol ?? '₹',
     );
+    _gstin = TextEditingController(text: profile?.gstin ?? '');
+    _stateCode = profile?.effectiveStateCode;
     _receiptFooterText = TextEditingController(
       text: profile?.receiptFooterText ?? 'Thank you for shopping with us.',
     );
@@ -65,6 +70,7 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
       _currencySymbol,
       _receiptFooterText,
       _receiptNumberPrefix,
+      _gstin,
     ]) {
       controller.dispose();
     }
@@ -121,7 +127,77 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
               ),
             ],
           ),
-          _field(_receiptNumberPrefix, 'Receipt number prefix (optional)'),
+          const Divider(height: 28),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'GST registration',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Enter your GSTIN to print bills as a tax invoice. Leave it blank '
+              'and bills print as a plain receipt instead.',
+              style: TextStyle(fontSize: 12.5),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _field(
+                  _gstin,
+                  'GSTIN (15 characters)',
+                  // Optional, but a value that is present must be well formed:
+                  // a malformed GSTIN on an invoice is worse than none at all.
+                  validator: (value) {
+                    final text = value?.trim() ?? '';
+                    if (text.isEmpty) return null;
+                    return isValidGstinFormat(text)
+                        ? null
+                        : 'Not a valid GSTIN';
+                  },
+                  onChanged: (value) {
+                    final derived = stateCodeFromGstin(value);
+                    if (derived != null && derived != _stateCode) {
+                      setState(() => _stateCode = derived);
+                    }
+                  },
+                  textCapitalization: TextCapitalization.characters,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _stateCode,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'State (place of supply)',
+                    ),
+                    items: [
+                      for (final entry in indianStateCodes.entries)
+                        DropdownMenuItem(
+                          value: entry.key,
+                          child: Text(
+                            '${entry.key} — ${entry.value}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: (value) => setState(() => _stateCode = value),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const Divider(height: 28),
+          _field(_receiptNumberPrefix, 'Invoice number prefix (e.g. CC)'),
           _field(_receiptFooterText, 'Receipt footer text', maxLines: 2),
           OutlinedButton.icon(
             onPressed: _pickLogo,
@@ -144,6 +220,8 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
     String label, {
     String? Function(String?)? validator,
     int maxLines = 1,
+    ValueChanged<String>? onChanged,
+    TextCapitalization textCapitalization = TextCapitalization.none,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 12),
     child: TextFormField(
@@ -151,6 +229,8 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
       decoration: InputDecoration(labelText: label),
       validator: validator,
       maxLines: maxLines,
+      onChanged: onChanged,
+      textCapitalization: textCapitalization,
     ),
   );
 
@@ -178,6 +258,8 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
         currencySymbol: _currencySymbol.text.trim(),
         receiptFooterText: _receiptFooterText.text.trim(),
         receiptNumberPrefix: _receiptNumberPrefix.text.trim(),
+        gstin: _gstin.text.trim().toUpperCase(),
+        stateCode: _stateCode,
       ),
     );
     widget.onSaved();

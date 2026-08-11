@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
@@ -21,6 +23,10 @@ class _PosPageState extends State<PosPage> {
   late final RetailStore _store;
   late final PosRepository _posRepository;
   final _customerSearch = TextEditingController();
+  final _productSearch = TextEditingController();
+
+  /// Held so focus can be pushed straight back after a scan.
+  final _productSearchFocus = FocusNode();
   final _cashTendered = TextEditingController();
   final _splitCash = TextEditingController();
   final _splitCard = TextEditingController();
@@ -45,6 +51,8 @@ class _PosPageState extends State<PosPage> {
   @override
   void dispose() {
     _customerSearch.dispose();
+    _productSearch.dispose();
+    _productSearchFocus.dispose();
     _cashTendered.dispose();
     _splitCash.dispose();
     _splitCard.dispose();
@@ -69,45 +77,109 @@ class _PosPageState extends State<PosPage> {
                 flex: 3,
                 child: SectionCard(
                   title: 'Sell Products',
+                  actions: [
+                    SizedBox(
+                      width: 320,
+                      child: TextField(
+                        controller: _productSearch,
+                        focusNode: _productSearchFocus,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          hintText: 'Scan barcode or search name / SKU',
+                          prefixIcon: const Icon(Icons.qr_code_scanner),
+                          suffixIcon: _productSearch.text.isEmpty
+                              ? null
+                              : IconButton(
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () {
+                                    _productSearch.clear();
+                                    setState(() {});
+                                  },
+                                ),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                        onSubmitted: _onSearchSubmitted,
+                      ),
+                    ),
+                  ],
                   child: SingleChildScrollView(
                     child: Wrap(
                       spacing: 12,
                       runSpacing: 12,
                       children: [
-                        for (final p in _store.products.where((p) => p.active))
+                        for (final p in _visibleProducts)
                           SizedBox(
                             width: 210,
                             child: Card(
+                              clipBehavior: Clip.antiAlias,
                               color: Colors.grey.shade50,
                               child: InkWell(
                                 onTap: p.stock > 0
                                     ? () => _posRepository.addToCart(p)
                                     : null,
-                                child: Padding(
-                                  padding: const EdgeInsets.all(14),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        p.name,
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.titleMedium,
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    _productImage(p),
+                                    Padding(
+                                      padding: const EdgeInsets.all(14),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            p.name,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.titleMedium,
+                                          ),
+                                          // Without this every size and colour
+                                          // of a design looks identical on the
+                                          // counter screen.
+                                          if (p.variantLabel.isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                top: 4,
+                                              ),
+                                              child: Chip(
+                                                label: Text(p.variantLabel),
+                                                visualDensity:
+                                                    VisualDensity.compact,
+                                                padding: EdgeInsets.zero,
+                                              ),
+                                            ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            p.sku,
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.bodySmall,
+                                          ),
+                                          Text(
+                                            'Stock: ${AppFormatters.quantity(p.stock)}',
+                                            style: TextStyle(
+                                              color: p.lowStock
+                                                  ? Theme.of(
+                                                      context,
+                                                    ).colorScheme.error
+                                                  : null,
+                                            ),
+                                          ),
+                                          Text(
+                                            AppFormatters.currency(
+                                              p.sellingPrice,
+                                            ),
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.titleLarge,
+                                          ),
+                                        ],
                                       ),
-                                      const SizedBox(height: 8),
-                                      Text(p.sku),
-                                      Text(
-                                        'Stock: ${p.stock.toStringAsFixed(0)}',
-                                      ),
-                                      Text(
-                                        AppFormatters.currency(p.sellingPrice),
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.titleLarge,
-                                      ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
@@ -137,7 +209,7 @@ class _PosPageState extends State<PosPage> {
                         for (final line in _store.cart)
                           ListTile(
                             contentPadding: EdgeInsets.zero,
-                            title: Text(line.product.name),
+                            title: Text(line.product.displayName),
                             subtitle: Text(
                               '${line.quantity} × ${AppFormatters.currency(line.product.sellingPrice)}',
                             ),
@@ -346,6 +418,69 @@ class _PosPageState extends State<PosPage> {
       ),
     ],
   );
+
+  /// Products matching the search box, across name, SKU, barcode, size and
+  /// colour so a scanned code and a typed name both land here.
+  List<ProductRecord> get _visibleProducts {
+    final query = _productSearch.text.trim().toLowerCase();
+    final active = _store.products.where((p) => p.active);
+    if (query.isEmpty) return active.toList();
+    return active
+        .where(
+          (p) =>
+              '${p.name} ${p.sku} ${p.barcode} ${p.size} ${p.color} ${p.category} ${p.brand}'
+                  .toLowerCase()
+                  .contains(query),
+        )
+        .toList();
+  }
+
+  /// A barcode scanner in keyboard-wedge mode types the code then sends Enter,
+  /// which arrives here. An exact barcode or SKU match is added to the cart
+  /// straight away and the box clears, ready for the next scan.
+  void _onSearchSubmitted(String value) {
+    final code = value.trim().toLowerCase();
+    if (code.isEmpty) return;
+
+    final exact = _store.products
+        .where(
+          (p) =>
+              p.active &&
+              (p.barcode.toLowerCase() == code || p.sku.toLowerCase() == code),
+        )
+        .cast<ProductRecord?>()
+        .firstOrNull;
+
+    // A single search hit is unambiguous, so treat it the same as a scan.
+    final matches = _visibleProducts;
+    final target = exact ?? (matches.length == 1 ? matches.single : null);
+
+    if (target == null) return;
+    if (target.stock <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${target.displayName} is out of stock')),
+      );
+      return;
+    }
+    _posRepository.addToCart(target);
+    _productSearch.clear();
+    setState(() {});
+    // Keep the caret in the box so the next scan needs no click.
+    _productSearchFocus.requestFocus();
+  }
+
+  Widget _productImage(ProductRecord product) {
+    final path = product.imagePath;
+    final file = path == null || !File(path).existsSync() ? null : File(path);
+    return Container(
+      height: 108,
+      width: double.infinity,
+      color: Colors.grey.shade200,
+      child: file == null
+          ? Icon(Icons.checkroom, size: 34, color: Colors.grey.shade500)
+          : Image.file(file, fit: BoxFit.cover),
+    );
+  }
 
   /// Grand total as the store will record it, so the button, the totals panel
   /// and the saved sale can never disagree.
