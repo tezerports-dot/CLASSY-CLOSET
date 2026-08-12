@@ -11,6 +11,7 @@ import '../database/app_database.dart';
 import '../utils/formatters.dart';
 import 'gst.dart';
 import 'permissions.dart';
+import 'reports.dart';
 import 'returns_and_shifts.dart';
 
 class AppUser {
@@ -1342,6 +1343,218 @@ class RetailStore extends ChangeNotifier {
 
   static double _money(double value) => (value * 100).roundToDouble() / 100;
 
+  // ------------------------------------------------------------- reports
+
+  /// Builds every report for [range] in one pass over the data.
+  ///
+  /// Everything is derived from sale *lines* rather than bill headers, because
+  /// a GST return needs tax broken down by rate and by HSN, and neither is
+  /// recoverable from a total.
+  Future<ReportBundle> buildReports(DateRange range) async {
+    final saleRows = await (_db.select(_db.sales)
+          ..where(
+            (s) =>
+                s.soldAt.isBiggerOrEqualValue(range.from) &
+                s.soldAt.isSmallerThanValue(range.to),
+          )
+          ..orderBy([(s) => OrderingTerm.desc(s.soldAt)]))
+        .get();
+    final saleIds = saleRows.map((s) => s.id).toList();
+
+    final items = saleIds.isEmpty
+        ? <SaleItemRow>[]
+        : await (_db.select(
+            _db.saleItems,
+          )..where((i) => i.saleId.isIn(saleIds))).get();
+
+    final customerNames = {
+      for (final c in await _db.select(_db.customers).get()) c.id: c.name,
+    };
+    final userNames = {
+      for (final u in await _db.select(_db.users).get()) u.id: u.fullName,
+    };
+    final productRows = await _db.select(_db.products).get();
+    final products = {for (final p in productRows) p.id: p};
+
+    // Profit per bill, from the cost captured at the time of sale.
+    final profitBySale = <int, double>{};
+    for (final item in items) {
+      final lineProfit = item.taxableValue - item.costPrice * item.quantity;
+      profitBySale.update(
+        item.saleId,
+        (v) => v + lineProfit,
+        ifAbsent: () => lineProfit,
+      );
+    }
+
+    final register = [
+      for (final sale in saleRows)
+        RegisterRow(
+          receiptNumber: sale.receiptNumber,
+          soldAt: sale.soldAt,
+          customerName: customerNames[sale.customerId] ?? 'Walk-in',
+          customerGstin: sale.customerGstin,
+          taxableValue: sale.subtotal,
+          cgst: sale.cgstTotal,
+          sgst: sale.sgstTotal,
+          igst: sale.igstTotal,
+          discount: sale.discountTotal,
+          grandTotal: sale.grandTotal,
+          profit: _money(profitBySale[sale.id] ?? 0),
+          paymentMethod: sale.paymentMethod,
+          cashAmount: sale.cashAmount,
+          cardAmount: sale.cardAmount,
+          upiAmount: sale.upiAmount,
+          soldBy: userNames[sale.userId] ?? '—',
+        ),
+    ];
+
+    // Which bills were inter-state, so line tax lands in the right column.
+    final interState = {
+      for (final sale in saleRows) sale.id: sale.igstTotal > 0,
+    };
+
+    final byRate = <double, _RateBucket>{};
+    final byHsn = <String, _HsnBucket>{};
+    final byProduct = <int, _ProductBucket>{};
+
+    for (final item in items) {
+      final isIgst = interState[item.saleId] ?? false;
+      final rate = item.taxRate;
+
+      byRate
+          .putIfAbsent(rate, () => _RateBucket())
+          .add(item.taxableValue, item.taxAmount, isIgst);
+
+      final hsn = (item.hsnCode ?? '').isEmpty ? '—' : item.hsnCode!;
+      final product = products[item.productId];
+      byHsn
+          .putIfAbsent(
+            hsn,
+            () => _HsnBucket(product?.name ?? 'Item'),
+          )
+          .add(item.quantity, item.taxableValue, item.taxAmount);
+
+      byProduct
+          .putIfAbsent(
+            item.productId,
+            () => _ProductBucket(
+              product == null
+                  ? 'Item ${item.productId}'
+                  : _variantLabel(product),
+              product?.currentStock ?? 0,
+            ),
+          )
+          .add(
+            item.quantity,
+            item.lineTotal,
+            item.taxableValue - item.costPrice * item.quantity,
+          );
+    }
+
+    final gstByRate =
+        byRate.entries
+            .map(
+              (e) => GstRateSummary(
+                ratePercent: e.key,
+                taxableValue: _money(e.value.taxable),
+                cgst: _money(e.value.cgst),
+                sgst: _money(e.value.sgst),
+                igst: _money(e.value.igst),
+                lineCount: e.value.count,
+              ),
+            )
+            .toList()
+          ..sort((a, b) => a.ratePercent.compareTo(b.ratePercent));
+
+    final hsnSummary =
+        byHsn.entries
+            .map(
+              (e) => HsnSummary(
+                hsnCode: e.key,
+                description: e.value.description,
+                quantity: e.value.quantity,
+                taxableValue: _money(e.value.taxable),
+                taxAmount: _money(e.value.tax),
+                total: _money(e.value.taxable + e.value.tax),
+              ),
+            )
+            .toList()
+          ..sort((a, b) => b.taxableValue.compareTo(a.taxableValue));
+
+    final sold =
+        byProduct.entries
+            .map(
+              (e) => ProductPerformance(
+                productId: e.key,
+                description: e.value.description,
+                quantitySold: e.value.quantity,
+                revenue: _money(e.value.revenue),
+                profit: _money(e.value.profit),
+                stockOnHand: e.value.stockOnHand,
+              ),
+            )
+            .toList()
+          ..sort((a, b) => b.quantitySold.compareTo(a.quantitySold));
+
+    // Anything on the shelf that did not move in the window.
+    final soldIds = byProduct.keys.toSet();
+    final deadStock =
+        productRows
+            .where(
+              (p) => p.isActive && p.currentStock > 0 && !soldIds.contains(p.id),
+            )
+            .map(
+              (p) => ProductPerformance(
+                productId: p.id,
+                description: _variantLabel(p),
+                quantitySold: 0,
+                revenue: 0,
+                profit: 0,
+                stockOnHand: p.currentStock,
+              ),
+            )
+            .toList()
+          ..sort(
+            (a, b) => (b.stockOnHand).compareTo(a.stockOnHand),
+          );
+
+    final returnRows = await (_db.select(_db.returns)
+          ..where(
+            (r) =>
+                r.returnedAt.isBiggerOrEqualValue(range.from) &
+                r.returnedAt.isSmallerThanValue(range.to),
+          ))
+        .get();
+
+    return ReportBundle(
+      range: range,
+      register: register,
+      gstByRate: gstByRate,
+      hsn: hsnSummary,
+      topSellers: sold,
+      deadStock: deadStock,
+      returnsTotal: _money(
+        returnRows.fold(0.0, (sum, r) => sum + r.totalAmount),
+      ),
+      returnsTax: _money(
+        returnRows.fold(
+          0.0,
+          (sum, r) => sum + r.cgstTotal + r.sgstTotal + r.igstTotal,
+        ),
+      ),
+      returnCount: returnRows.length,
+    );
+  }
+
+  static String _variantLabel(ProductRow product) {
+    final variant = [
+      product.color ?? '',
+      product.size ?? '',
+    ].where((v) => v.isNotEmpty).join(' / ');
+    return variant.isEmpty ? product.name : '${product.name} ($variant)';
+  }
+
   // ------------------------------------------------------------- returns
 
   /// Finds a bill by its number so it can be returned against.
@@ -2309,4 +2522,48 @@ class _ShiftTotals {
   final double paidIn;
   final double paidOut;
   final int saleCount;
+}
+
+/// Running tax totals for one GST rate.
+class _RateBucket {
+  double taxable = 0, cgst = 0, sgst = 0, igst = 0;
+  int count = 0;
+
+  void add(double taxableValue, double tax, bool isIgst) {
+    taxable += taxableValue;
+    if (isIgst) {
+      igst += tax;
+    } else {
+      cgst += tax / 2;
+      sgst += tax / 2;
+    }
+    count++;
+  }
+}
+
+/// Running totals for one HSN code.
+class _HsnBucket {
+  _HsnBucket(this.description);
+  final String description;
+  double quantity = 0, taxable = 0, tax = 0;
+
+  void add(double qty, double taxableValue, double taxAmount) {
+    quantity += qty;
+    taxable += taxableValue;
+    tax += taxAmount;
+  }
+}
+
+/// Running totals for one product.
+class _ProductBucket {
+  _ProductBucket(this.description, this.stockOnHand);
+  final String description;
+  final double stockOnHand;
+  double quantity = 0, revenue = 0, profit = 0;
+
+  void add(double qty, double lineTotal, double lineProfit) {
+    quantity += qty;
+    revenue += lineTotal;
+    profit += lineProfit;
+  }
 }
