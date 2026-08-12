@@ -1351,14 +1351,15 @@ class RetailStore extends ChangeNotifier {
   /// a GST return needs tax broken down by rate and by HSN, and neither is
   /// recoverable from a total.
   Future<ReportBundle> buildReports(DateRange range) async {
-    final saleRows = await (_db.select(_db.sales)
-          ..where(
-            (s) =>
-                s.soldAt.isBiggerOrEqualValue(range.from) &
-                s.soldAt.isSmallerThanValue(range.to),
-          )
-          ..orderBy([(s) => OrderingTerm.desc(s.soldAt)]))
-        .get();
+    final saleRows =
+        await (_db.select(_db.sales)
+              ..where(
+                (s) =>
+                    s.soldAt.isBiggerOrEqualValue(range.from) &
+                    s.soldAt.isSmallerThanValue(range.to),
+              )
+              ..orderBy([(s) => OrderingTerm.desc(s.soldAt)]))
+            .get();
     final saleIds = saleRows.map((s) => s.id).toList();
 
     final items = saleIds.isEmpty
@@ -1429,10 +1430,7 @@ class RetailStore extends ChangeNotifier {
       final hsn = (item.hsnCode ?? '').isEmpty ? '—' : item.hsnCode!;
       final product = products[item.productId];
       byHsn
-          .putIfAbsent(
-            hsn,
-            () => _HsnBucket(product?.name ?? 'Item'),
-          )
+          .putIfAbsent(hsn, () => _HsnBucket(product?.name ?? 'Item'))
           .add(item.quantity, item.taxableValue, item.taxAmount);
 
       byProduct
@@ -1502,7 +1500,8 @@ class RetailStore extends ChangeNotifier {
     final deadStock =
         productRows
             .where(
-              (p) => p.isActive && p.currentStock > 0 && !soldIds.contains(p.id),
+              (p) =>
+                  p.isActive && p.currentStock > 0 && !soldIds.contains(p.id),
             )
             .map(
               (p) => ProductPerformance(
@@ -1515,17 +1514,15 @@ class RetailStore extends ChangeNotifier {
               ),
             )
             .toList()
-          ..sort(
-            (a, b) => (b.stockOnHand).compareTo(a.stockOnHand),
-          );
+          ..sort((a, b) => (b.stockOnHand).compareTo(a.stockOnHand));
 
-    final returnRows = await (_db.select(_db.returns)
-          ..where(
-            (r) =>
-                r.returnedAt.isBiggerOrEqualValue(range.from) &
-                r.returnedAt.isSmallerThanValue(range.to),
-          ))
-        .get();
+    final returnRows =
+        await (_db.select(_db.returns)..where(
+              (r) =>
+                  r.returnedAt.isBiggerOrEqualValue(range.from) &
+                  r.returnedAt.isSmallerThanValue(range.to),
+            ))
+            .get();
 
     return ReportBundle(
       range: range,

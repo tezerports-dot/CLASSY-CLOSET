@@ -26,11 +26,7 @@ class DateRange {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final start = today.subtract(Duration(days: today.weekday - 1));
-    return DateRange(
-      start,
-      today.add(const Duration(days: 1)),
-      'This week',
-    );
+    return DateRange(start, today.add(const Duration(days: 1)), 'This week');
   }
 
   static DateRange thisMonth() {
@@ -199,13 +195,11 @@ class ReportBundle {
   final int returnCount;
 
   int get billCount => register.length;
-  double get grossSales =>
-      register.fold(0.0, (sum, r) => sum + r.grandTotal);
+  double get grossSales => register.fold(0.0, (sum, r) => sum + r.grandTotal);
   double get taxableTotal =>
       register.fold(0.0, (sum, r) => sum + r.taxableValue);
   double get taxTotal => register.fold(0.0, (sum, r) => sum + r.taxTotal);
-  double get discountTotal =>
-      register.fold(0.0, (sum, r) => sum + r.discount);
+  double get discountTotal => register.fold(0.0, (sum, r) => sum + r.discount);
   double get grossProfit => register.fold(0.0, (sum, r) => sum + r.profit);
   double get cashTotal => register.fold(0.0, (sum, r) => sum + r.cashAmount);
   double get cardTotal => register.fold(0.0, (sum, r) => sum + r.cardAmount);
