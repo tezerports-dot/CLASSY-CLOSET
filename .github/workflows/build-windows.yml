@@ -1,0 +1,46 @@
+name: Build Windows Installer
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Java (for Flutter)
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        channel: 'stable'
+        architecture: x64
+
+    - name: Get Flutter Dependencies
+      run: flutter pub get
+
+    - name: Run Build Runner
+      run: dart run build_runner build --delete-conflicting-outputs
+
+    - name: Build Windows App
+      run: flutter build windows --release
+
+    - name: Download & Run Inno Setup Compiler
+      run: |
+        choco install innosetup -y
+        & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+
+    - name: Upload Installer Executable
+      uses: actions/upload-artifact@v4
+      with:
+        name: RetailProSetup
+        path: installer/RetailProSetup.exe
