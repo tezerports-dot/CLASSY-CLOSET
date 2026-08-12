@@ -46,6 +46,12 @@ enum Permission {
 
   /// Open and close a till session and count the drawer.
   manageShift,
+
+  /// Receive stock from a supplier.
+  recordPurchases,
+
+  /// Record what the shop spent.
+  recordExpenses,
 }
 
 /// The roles a user can hold. The name stored in the database is matched
@@ -104,6 +110,8 @@ const Map<AppRole, Set<Permission>> rolePermissions = {
     Permission.backupRestore,
     Permission.processReturns,
     Permission.manageShift,
+    Permission.recordPurchases,
+    Permission.recordExpenses,
   },
   AppRole.manager: {
     Permission.viewDashboard,
@@ -120,6 +128,8 @@ const Map<AppRole, Set<Permission>> rolePermissions = {
     Permission.backupRestore,
     Permission.processReturns,
     Permission.manageShift,
+    Permission.recordPurchases,
+    Permission.recordExpenses,
   },
   AppRole.cashier: {
     Permission.viewDashboard,
@@ -138,6 +148,8 @@ const Map<AppRole, Set<Permission>> rolePermissions = {
     Permission.editProducts,
     Permission.viewSuppliers,
     Permission.editSuppliers,
+    // Receiving a delivery is exactly this role's job.
+    Permission.recordPurchases,
   },
   AppRole.sales: {
     Permission.viewDashboard,
@@ -169,6 +181,8 @@ const Map<String, Permission> routePermissions = {
   '/suppliers': Permission.viewSuppliers,
   '/returns': Permission.processReturns,
   '/shift': Permission.manageShift,
+  '/purchases': Permission.recordPurchases,
+  '/expenses': Permission.recordExpenses,
   '/reports': Permission.viewReports,
   '/settings': Permission.manageSettings,
   '/users': Permission.manageUsers,

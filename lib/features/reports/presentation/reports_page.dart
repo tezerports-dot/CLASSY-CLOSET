@@ -23,6 +23,7 @@ class _ReportsPageState extends State<ReportsPage> {
 
   DateRange _range = DateRange.thisMonth();
   ReportBundle? _bundle;
+  double _expenses = 0;
   bool _loading = true;
   int _tab = 0;
 
@@ -38,6 +39,7 @@ class _ReportsPageState extends State<ReportsPage> {
     if (mounted) {
       setState(() {
         _bundle = bundle;
+        _expenses = _store.expensesBetween(_range.from, _range.to);
         _loading = false;
       });
     }
@@ -134,6 +136,19 @@ class _ReportsPageState extends State<ReportsPage> {
           'Gross profit',
           AppFormatters.currency(b.grossProfit),
           hint: '${b.marginPercent.toStringAsFixed(1)}% margin',
+        ),
+        _stat(
+          theme,
+          'Expenses',
+          '-${AppFormatters.currency(_expenses)}',
+          hint: 'rent, wages, and so on',
+        ),
+        // The figure that actually answers "was this month worth it".
+        _stat(
+          theme,
+          'Net profit',
+          AppFormatters.currency(b.grossProfit - _expenses),
+          strong: true,
         ),
         _stat(
           theme,

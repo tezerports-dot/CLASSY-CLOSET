@@ -211,4 +211,6 @@ String _short(Permission permission) => switch (permission) {
   Permission.backupRestore => 'Backup',
   Permission.processReturns => 'Returns',
   Permission.manageShift => 'Till session',
+  Permission.recordPurchases => 'Purchases',
+  Permission.recordExpenses => 'Expenses',
 };

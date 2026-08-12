@@ -8,6 +8,8 @@ import '../features/customers/presentation/customers_page.dart';
 import '../features/dashboard/presentation/dashboard_page.dart';
 import '../features/pos/presentation/pos_page.dart';
 import '../features/products/presentation/products_page.dart';
+import '../features/expenses/presentation/expenses_page.dart';
+import '../features/purchases/presentation/purchases_page.dart';
 import '../features/reports/presentation/reports_page.dart';
 import '../features/returns/presentation/returns_page.dart';
 import '../features/shifts/presentation/shift_page.dart';
@@ -61,6 +63,11 @@ GoRouter createAppRouter(RetailStore store) {
             path: '/suppliers',
             builder: (_, __) => const SuppliersPage(),
           ),
+          GoRoute(
+            path: '/purchases',
+            builder: (_, __) => const PurchasesPage(),
+          ),
+          GoRoute(path: '/expenses', builder: (_, __) => const ExpensesPage()),
           GoRoute(path: '/returns', builder: (_, __) => const ReturnsPage()),
           GoRoute(path: '/shift', builder: (_, __) => const ShiftPage()),
           GoRoute(path: '/reports', builder: (_, __) => const ReportsPage()),

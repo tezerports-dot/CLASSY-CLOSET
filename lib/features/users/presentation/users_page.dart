@@ -155,4 +155,6 @@ String _permissionLabel(Permission permission) => switch (permission) {
   Permission.backupRestore => 'Back up and restore',
   Permission.processReturns => 'Take goods back and refund',
   Permission.manageShift => 'Open and close the till',
+  Permission.recordPurchases => 'Receive stock from a supplier',
+  Permission.recordExpenses => 'Record what the shop spent',
 };

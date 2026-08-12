@@ -482,6 +482,8 @@ class RetailStore extends ChangeNotifier {
       _loadAuditLogs(),
       _loadUsers(),
       _loadReturns(),
+      _loadPurchases(),
+      _loadExpenses(),
     ]);
     // Shifts read the user list, so they load after it rather than alongside.
     await _loadShifts();
@@ -1342,6 +1344,250 @@ class RetailStore extends ChangeNotifier {
   }
 
   static double _money(double value) => (value * 100).roundToDouble() / 100;
+
+  // ----------------------------------------------------------- purchases
+
+  /// One line of a goods receipt.
+  ///
+  /// Cost is per piece, so the person receiving a delivery types the number on
+  /// the supplier's invoice rather than working out a total.
+  Future<int> receiveStock({
+    required int supplierId,
+    required String invoiceNumber,
+    required Map<int, PurchaseLine> lines,
+    DateTime? purchasedAt,
+    double paidAmount = 0,
+  }) async {
+    final entries = lines.entries.where((e) => e.value.quantity > 0).toList();
+    if (entries.isEmpty) {
+      throw StateError('Enter a quantity for at least one item.');
+    }
+    if (invoiceNumber.trim().isEmpty) {
+      throw StateError("Enter the supplier's invoice number.");
+    }
+
+    final clash =
+        await (_db.select(_db.purchases)
+              ..where((p) => p.invoiceNumber.equals(invoiceNumber.trim())))
+            .getSingleOrNull();
+    if (clash != null) {
+      throw StateError('Invoice ${invoiceNumber.trim()} is already recorded.');
+    }
+
+    final at = purchasedAt ?? DateTime.now();
+    var subtotal = 0.0;
+    for (final entry in entries) {
+      subtotal += entry.value.quantity * entry.value.unitCost;
+    }
+    subtotal = _money(subtotal);
+
+    late int purchaseId;
+    await _db.transaction(() async {
+      purchaseId = await _db
+          .into(_db.purchases)
+          .insert(
+            PurchasesCompanion.insert(
+              supplierId: supplierId,
+              invoiceNumber: invoiceNumber.trim(),
+              subtotal: Value(subtotal),
+              grandTotal: Value(subtotal),
+              paidAmount: Value(_money(paidAmount)),
+              purchasedAt: Value(at),
+            ),
+          );
+
+      for (final entry in entries) {
+        final productId = entry.key;
+        final line = entry.value;
+        await _db
+            .into(_db.purchaseItems)
+            .insert(
+              PurchaseItemsCompanion.insert(
+                purchaseId: purchaseId,
+                productId: productId,
+                quantity: line.quantity,
+                unitCost: line.unitCost,
+                lineTotal: _money(line.quantity * line.unitCost),
+              ),
+            );
+
+        final product = await (_db.select(
+          _db.products,
+        )..where((p) => p.id.equals(productId))).getSingleOrNull();
+        if (product != null) {
+          // The cost price follows the latest delivery, so margin is measured
+          // against what the shop most recently paid.
+          await (_db.update(
+            _db.products,
+          )..where((p) => p.id.equals(productId))).write(
+            ProductsCompanion(
+              currentStock: Value(product.currentStock + line.quantity),
+              purchasePrice: Value(line.unitCost),
+            ),
+          );
+        }
+        await _db
+            .into(_db.inventoryMovements)
+            .insert(
+              InventoryMovementsCompanion.insert(
+                productId: productId,
+                movementType: 'purchase',
+                quantity: line.quantity,
+                referenceType: const Value('purchases'),
+                referenceId: Value(purchaseId),
+              ),
+            );
+      }
+
+      // Anything unpaid is owed to the supplier.
+      final owing = subtotal - _money(paidAmount);
+      if (owing != 0) {
+        final supplier = await (_db.select(
+          _db.suppliers,
+        )..where((s) => s.id.equals(supplierId))).getSingleOrNull();
+        if (supplier != null) {
+          await (_db.update(
+            _db.suppliers,
+          )..where((s) => s.id.equals(supplierId))).write(
+            SuppliersCompanion(
+              currentBalance: Value(_money(supplier.currentBalance + owing)),
+            ),
+          );
+        }
+      }
+
+      await _audit(
+        'CREATE',
+        'purchases',
+        purchaseId,
+        'Received ${entries.length} item(s) on invoice ${invoiceNumber.trim()} '
+            'for ${AppFormatters.currency(subtotal)}',
+      );
+    });
+
+    await refresh();
+    return purchaseId;
+  }
+
+  final purchases = <PurchaseRecord>[];
+
+  Future<void> _loadPurchases() async {
+    final supplierNames = {
+      for (final s in await _db.select(_db.suppliers).get()) s.id: s.name,
+    };
+    final counts = <int, int>{};
+    for (final item in await _db.select(_db.purchaseItems).get()) {
+      counts.update(item.purchaseId, (v) => v + 1, ifAbsent: () => 1);
+    }
+    final rows = await (_db.select(
+      _db.purchases,
+    )..orderBy([(p) => OrderingTerm.desc(p.purchasedAt)])).get();
+
+    purchases
+      ..clear()
+      ..addAll(
+        rows.map(
+          (r) => PurchaseRecord(
+            id: r.id,
+            invoiceNumber: r.invoiceNumber,
+            supplierName: supplierNames[r.supplierId] ?? 'Unknown',
+            total: r.grandTotal,
+            paid: r.paidAmount,
+            purchasedAt: r.purchasedAt,
+            lineCount: counts[r.id] ?? 0,
+          ),
+        ),
+      );
+  }
+
+  // ------------------------------------------------------------ expenses
+
+  /// Records what the shop spent, so net profit is not just gross margin.
+  Future<int> saveExpense({
+    required String category,
+    required String title,
+    required double amount,
+    String? notes,
+    DateTime? spentAt,
+  }) async {
+    if (title.trim().isEmpty) throw StateError('Enter what it was for.');
+    if (amount <= 0) throw StateError('Enter an amount above zero.');
+
+    final categoryId = await _ensureExpenseCategory(category);
+    final id = await _db
+        .into(_db.expenses)
+        .insert(
+          ExpensesCompanion.insert(
+            categoryId: categoryId,
+            title: title.trim(),
+            amount: _money(amount),
+            notes: Value(notes?.trim().isEmpty ?? true ? null : notes!.trim()),
+            spentAt: Value(spentAt ?? DateTime.now()),
+          ),
+        );
+    await _audit(
+      'CREATE',
+      'expenses',
+      id,
+      'Spent ${AppFormatters.currency(amount)} on ${title.trim()}',
+    );
+    await refresh();
+    return id;
+  }
+
+  Future<int> _ensureExpenseCategory(String name) async {
+    final normalized = name.trim().isEmpty ? 'General' : name.trim();
+    final existing = await (_db.select(
+      _db.expenseCategories,
+    )..where((c) => c.name.equals(normalized))).getSingleOrNull();
+    if (existing != null) return existing.id;
+    return _db
+        .into(_db.expenseCategories)
+        .insert(ExpenseCategoriesCompanion.insert(name: normalized));
+  }
+
+  Future<void> deleteExpense(int id) async {
+    await (_db.delete(_db.expenses)..where((e) => e.id.equals(id))).go();
+    await _audit('DELETE', 'expenses', id, 'Removed an expense');
+    await refresh();
+  }
+
+  final expenses = <ExpenseRecord>[];
+  final expenseCategoryNames = <String>[];
+
+  Future<void> _loadExpenses() async {
+    final categories = {
+      for (final c in await _db.select(_db.expenseCategories).get())
+        c.id: c.name,
+    };
+    expenseCategoryNames
+      ..clear()
+      ..addAll(categories.values);
+
+    final rows = await (_db.select(
+      _db.expenses,
+    )..orderBy([(e) => OrderingTerm.desc(e.spentAt)])).get();
+
+    expenses
+      ..clear()
+      ..addAll(
+        rows.map(
+          (r) => ExpenseRecord(
+            id: r.id,
+            category: categories[r.categoryId] ?? 'General',
+            title: r.title,
+            amount: r.amount,
+            notes: r.notes,
+            spentAt: r.spentAt,
+          ),
+        ),
+      );
+  }
+
+  /// Everything spent inside a window, for the profit-and-loss line.
+  double expensesBetween(DateTime from, DateTime to) => expenses
+      .where((e) => !e.spentAt.isBefore(from) && e.spentAt.isBefore(to))
+      .fold(0.0, (sum, e) => sum + e.amount);
 
   // ------------------------------------------------------------- reports
 
@@ -2563,4 +2809,55 @@ class _ProductBucket {
     revenue += lineTotal;
     profit += lineProfit;
   }
+}
+
+/// One line of a goods receipt: how many arrived and what each cost.
+class PurchaseLine {
+  const PurchaseLine({required this.quantity, required this.unitCost});
+  final double quantity;
+  final double unitCost;
+
+  double get lineTotal => quantity * unitCost;
+}
+
+/// A recorded delivery.
+class PurchaseRecord {
+  const PurchaseRecord({
+    required this.id,
+    required this.invoiceNumber,
+    required this.supplierName,
+    required this.total,
+    required this.paid,
+    required this.purchasedAt,
+    this.lineCount = 0,
+  });
+
+  final int id;
+  final String invoiceNumber;
+  final String supplierName;
+  final double total;
+  final double paid;
+  final DateTime purchasedAt;
+  final int lineCount;
+
+  double get outstanding => total - paid;
+}
+
+/// Money the shop spent that was not stock.
+class ExpenseRecord {
+  const ExpenseRecord({
+    required this.id,
+    required this.category,
+    required this.title,
+    required this.amount,
+    required this.spentAt,
+    this.notes,
+  });
+
+  final int id;
+  final String category;
+  final String title;
+  final double amount;
+  final DateTime spentAt;
+  final String? notes;
 }

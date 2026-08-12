@@ -141,6 +141,13 @@ const _navItems = <_NavEntry>[
     Permission.viewProducts,
   ),
   _NavEntry(
+    Icons.local_shipping_outlined,
+    'Purchases',
+    '/purchases',
+    Permission.recordPurchases,
+  ),
+  _NavEntry(Icons.receipt, 'Expenses', '/expenses', Permission.recordExpenses),
+  _NavEntry(
     Icons.assignment_return,
     'Returns',
     '/returns',
