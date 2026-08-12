@@ -7,6 +7,7 @@ import '../../../core/services/permissions.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/section_card.dart';
+import 'widgets/label_print_dialog.dart';
 import 'widgets/product_form_dialog.dart';
 import 'widgets/style_matrix_dialog.dart';
 
@@ -180,6 +181,17 @@ class _ProductsPageState extends State<ProductsPage> {
                             '${style.sizes.length} size(s)',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
+                          if (_canEdit) ...[
+                            const SizedBox(height: 6),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton.icon(
+                                onPressed: () => _printLabels(style),
+                                icon: const Icon(Icons.label, size: 18),
+                                label: const Text('Print labels'),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -278,6 +290,15 @@ class _ProductsPageState extends State<ProductsPage> {
     await showDialog<void>(
       context: context,
       builder: (_) => StyleMatrixDialog(store: _store, style: style),
+    );
+  }
+
+  /// Barcode price labels for a whole design, sized for the label stock the
+  /// shop buys.
+  Future<void> _printLabels(StyleRecord style) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => LabelPrintDialog(store: _store, style: style),
     );
   }
 
