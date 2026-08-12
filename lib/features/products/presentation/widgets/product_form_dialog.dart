@@ -43,11 +43,21 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
     _description = TextEditingController(text: product?.description ?? '');
     _category = TextEditingController(text: product?.category ?? '');
     _brand = TextEditingController(text: product?.brand ?? '');
-    _unit = TextEditingController(text: product?.unit ?? (widget.store.unitNames.isEmpty ? 'pcs' : widget.store.unitNames.first));
+    _unit = TextEditingController(
+      text:
+          product?.unit ??
+          (widget.store.unitNames.isEmpty
+              ? 'pcs'
+              : widget.store.unitNames.first),
+    );
     _supplier = TextEditingController(text: product?.supplier ?? '');
-    _purchasePrice = TextEditingController(text: _format(product?.purchasePrice));
+    _purchasePrice = TextEditingController(
+      text: _format(product?.purchasePrice),
+    );
     _sellingPrice = TextEditingController(text: _format(product?.sellingPrice));
-    _wholesalePrice = TextEditingController(text: _format(product?.wholesalePrice));
+    _wholesalePrice = TextEditingController(
+      text: _format(product?.wholesalePrice),
+    );
     _taxRate = TextEditingController(text: _format(product?.taxRate));
     _currentStock = TextEditingController(text: _format(product?.stock));
     _minimumStock = TextEditingController(text: _format(product?.minimumStock));
@@ -58,7 +68,24 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
 
   @override
   void dispose() {
-    for (final controller in [_sku, _barcode, _name, _description, _category, _brand, _unit, _supplier, _purchasePrice, _sellingPrice, _wholesalePrice, _taxRate, _currentStock, _minimumStock, _maximumStock, _location]) {
+    for (final controller in [
+      _sku,
+      _barcode,
+      _name,
+      _description,
+      _category,
+      _brand,
+      _unit,
+      _supplier,
+      _purchasePrice,
+      _sellingPrice,
+      _wholesalePrice,
+      _taxRate,
+      _currentStock,
+      _minimumStock,
+      _maximumStock,
+      _location,
+    ]) {
       controller.dispose();
     }
     super.dispose();
@@ -76,48 +103,210 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Row(children: [Expanded(child: _text(_sku, 'SKU', validator: Validators.requiredText)), const SizedBox(width: 12), Expanded(child: _text(_barcode, 'Barcode (optional)'))]),
-                Row(children: [Expanded(child: _text(_name, 'Name', validator: Validators.requiredText)), const SizedBox(width: 12), Expanded(child: _text(_description, 'Description'))]),
-                Row(children: [Expanded(child: _lookup(_category, 'Category', widget.store.categoryNames)), const SizedBox(width: 12), Expanded(child: _lookup(_brand, 'Brand', widget.store.brandNames))]),
-                Row(children: [Expanded(child: _lookup(_unit, 'Unit', widget.store.unitNames, required: true)), const SizedBox(width: 12), Expanded(child: _lookup(_supplier, 'Supplier', widget.store.suppliers.map((s) => s.name).toList()))]),
-                Row(children: [Expanded(child: _number(_purchasePrice, 'Purchase price')), const SizedBox(width: 12), Expanded(child: _number(_sellingPrice, 'Selling price'))]),
-                Row(children: [Expanded(child: _number(_wholesalePrice, 'Wholesale price')), const SizedBox(width: 12), Expanded(child: _number(_taxRate, 'Tax rate %'))]),
-                Row(children: [Expanded(child: _number(_currentStock, 'Current stock')), const SizedBox(width: 12), Expanded(child: _number(_minimumStock, 'Minimum stock'))]),
-                Row(children: [Expanded(child: _number(_maximumStock, 'Maximum stock', required: false)), const SizedBox(width: 12), Expanded(child: _text(_location, 'Location'))]),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _text(
+                        _sku,
+                        'SKU',
+                        validator: Validators.requiredText,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(child: _text(_barcode, 'Barcode (optional)')),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _text(
+                        _name,
+                        'Name',
+                        validator: Validators.requiredText,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(child: _text(_description, 'Description')),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _lookup(
+                        _category,
+                        'Category',
+                        widget.store.categoryNames,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _lookup(_brand, 'Brand', widget.store.brandNames),
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _lookup(
+                        _unit,
+                        'Unit',
+                        widget.store.unitNames,
+                        required: true,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _lookup(
+                        _supplier,
+                        'Supplier',
+                        widget.store.suppliers.map((s) => s.name).toList(),
+                      ),
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(child: _number(_purchasePrice, 'Purchase price')),
+                    const SizedBox(width: 12),
+                    Expanded(child: _number(_sellingPrice, 'Selling price')),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _number(_wholesalePrice, 'Wholesale price'),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(child: _number(_taxRate, 'Tax rate %')),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(child: _number(_currentStock, 'Current stock')),
+                    const SizedBox(width: 12),
+                    Expanded(child: _number(_minimumStock, 'Minimum stock')),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _number(
+                        _maximumStock,
+                        'Maximum stock',
+                        required: false,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(child: _text(_location, 'Location')),
+                  ],
+                ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: Text(_expiryDate == null ? 'No expiry date' : 'Expiry: ${_expiryDate!.toIso8601String().split('T').first}'),
-                  trailing: Wrap(spacing: 8, children: [TextButton(onPressed: _pickExpiry, child: const Text('Pick date')), if (_expiryDate != null) TextButton(onPressed: () => setState(() => _expiryDate = null), child: const Text('Clear'))]),
+                  title: Text(
+                    _expiryDate == null
+                        ? 'No expiry date'
+                        : 'Expiry: ${_expiryDate!.toIso8601String().split('T').first}',
+                  ),
+                  trailing: Wrap(
+                    spacing: 8,
+                    children: [
+                      TextButton(
+                        onPressed: _pickExpiry,
+                        child: const Text('Pick date'),
+                      ),
+                      if (_expiryDate != null)
+                        TextButton(
+                          onPressed: () => setState(() => _expiryDate = null),
+                          child: const Text('Clear'),
+                        ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
         ),
       ),
-      actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')), FilledButton(onPressed: _save, child: const Text('Save'))],
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('Save')),
+      ],
     );
   }
 
-  Widget _text(TextEditingController controller, String label, {String? Function(String?)? validator}) => Padding(padding: const EdgeInsets.only(bottom: 12), child: TextFormField(controller: controller, decoration: InputDecoration(labelText: label), validator: validator));
-  Widget _number(TextEditingController controller, String label, {bool required = true}) => _text(controller, label, validator: required ? Validators.nonNegativeNumber : (value) => (value == null || value.trim().isEmpty) ? null : Validators.nonNegativeNumber(value));
+  Widget _text(
+    TextEditingController controller,
+    String label, {
+    String? Function(String?)? validator,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: TextFormField(
+      controller: controller,
+      decoration: InputDecoration(labelText: label),
+      validator: validator,
+    ),
+  );
+  Widget _number(
+    TextEditingController controller,
+    String label, {
+    bool required = true,
+  }) => _text(
+    controller,
+    label,
+    validator: required
+        ? Validators.nonNegativeNumber
+        : (value) => (value == null || value.trim().isEmpty)
+              ? null
+              : Validators.nonNegativeNumber(value),
+  );
 
-  Widget _lookup(TextEditingController controller, String label, List<String> options, {bool required = false}) {
+  Widget _lookup(
+    TextEditingController controller,
+    String label,
+    List<String> options, {
+    bool required = false,
+  }) {
     final normalized = options.toSet().toList()..sort();
     final value = normalized.contains(controller.text) ? controller.text : null;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
-          Expanded(child: DropdownButtonFormField<String>(value: value, decoration: InputDecoration(labelText: label), items: [for (final option in normalized) DropdownMenuItem(value: option, child: Text(option))], onChanged: (value) => setState(() => controller.text = value ?? controller.text))),
+          Expanded(
+            child: DropdownButtonFormField<String>(
+              initialValue: value,
+              decoration: InputDecoration(labelText: label),
+              items: [
+                for (final option in normalized)
+                  DropdownMenuItem(value: option, child: Text(option)),
+              ],
+              onChanged: (value) =>
+                  setState(() => controller.text = value ?? controller.text),
+            ),
+          ),
           const SizedBox(width: 8),
-          Expanded(child: TextFormField(controller: controller, decoration: InputDecoration(labelText: 'New/existing $label'), validator: required ? Validators.requiredText : null)),
+          Expanded(
+            child: TextFormField(
+              controller: controller,
+              decoration: InputDecoration(labelText: 'New/existing $label'),
+              validator: required ? Validators.requiredText : null,
+            ),
+          ),
         ],
       ),
     );
   }
 
   Future<void> _pickExpiry() async {
-    final picked = await showDatePicker(context: context, initialDate: _expiryDate ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime(2100));
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _expiryDate ?? DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
     if (picked != null) setState(() => _expiryDate = picked);
   }
 
@@ -140,7 +329,9 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
       supplier: _supplier.text.trim(),
       wholesalePrice: _parse(_wholesalePrice.text),
       taxRate: _parse(_taxRate.text),
-      maximumStock: _maximumStock.text.trim().isEmpty ? null : _parse(_maximumStock.text),
+      maximumStock: _maximumStock.text.trim().isEmpty
+          ? null
+          : _parse(_maximumStock.text),
       expiryDate: _expiryDate,
     );
     await widget.store.saveProduct(product);
@@ -148,5 +339,6 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
   }
 
   double _parse(String value) => double.tryParse(value.trim()) ?? 0;
-  String _format(double? value) => value == null || value == 0 ? '' : value.toString();
+  String _format(double? value) =>
+      value == null || value == 0 ? '' : value.toString();
 }

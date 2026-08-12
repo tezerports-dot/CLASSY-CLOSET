@@ -14,11 +14,14 @@ Flutter Windows desktop application scaffold for an offline retail ERP/POS backe
 
 ## Run locally
 
-1. Install Flutter 3.x with Windows desktop support.
+1. Install Flutter 3.35 or newer with desktop support for your platform.
 2. Run `flutter pub get`.
-3. Run `dart run build_runner build --delete-conflicting-outputs` to generate Drift code.
-4. Run `flutter run -d windows`.
+3. Run `dart run build_runner build` to generate the Drift code (`lib/core/database/app_database.g.dart` is generated and not committed).
+4. Run `flutter run -d windows` (or `-d linux`).
 
-## Important note
+Checks: `flutter analyze` and `flutter test`.
 
-This repository environment does not include Flutter/Dart, so generated Drift files and a Windows runner could not be produced here. The committed app code is structured so those steps can be run on a machine with Flutter installed.
+## Notes
+
+- `app_database.g.dart` is generated, so step 3 is required before analyzing, testing or running.
+- The `linux/` native build compiles SQLite from source, which `sqlite3_flutter_libs` downloads from `sqlite.org` during the CMake configure step. That host must be reachable the first time you build.

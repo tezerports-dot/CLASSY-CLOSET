@@ -1,18 +1,16 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../../app/di/injection.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/section_card.dart';
+import '../data/invoice_document.dart';
 import '../data/repositories/pos_repository.dart';
 
-enum _PaymentMode { cash, card, split }
+enum _PaymentMode { cash, card, upi, split }
 
 class PosPage extends StatefulWidget {
   const PosPage({super.key});
@@ -25,11 +23,19 @@ class _PosPageState extends State<PosPage> {
   late final RetailStore _store;
   late final PosRepository _posRepository;
   final _customerSearch = TextEditingController();
+  final _productSearch = TextEditingController();
+
+  /// Held so focus can be pushed straight back after a scan.
+  final _productSearchFocus = FocusNode();
   final _cashTendered = TextEditingController();
   final _splitCash = TextEditingController();
   final _splitCard = TextEditingController();
   CustomerRecord? _selectedCustomer;
   _PaymentMode _paymentMode = _PaymentMode.cash;
+
+  /// Which paper the invoice is laid out for. 80 mm is the common counter
+  /// thermal roll, so it is the default.
+  InvoicePaper _paper = InvoicePaper.roll80;
   bool _checkingOut = false;
 
   @override
@@ -45,6 +51,8 @@ class _PosPageState extends State<PosPage> {
   @override
   void dispose() {
     _customerSearch.dispose();
+    _productSearch.dispose();
+    _productSearchFocus.dispose();
     _cashTendered.dispose();
     _splitCash.dispose();
     _splitCard.dispose();
@@ -69,29 +77,115 @@ class _PosPageState extends State<PosPage> {
                 flex: 3,
                 child: SectionCard(
                   title: 'Sell Products',
+                  actions: [
+                    SizedBox(
+                      width: 320,
+                      child: TextField(
+                        controller: _productSearch,
+                        focusNode: _productSearchFocus,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          hintText: 'Scan barcode or search name / SKU',
+                          prefixIcon: const Icon(Icons.qr_code_scanner),
+                          suffixIcon: _productSearch.text.isEmpty
+                              ? null
+                              : IconButton(
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () {
+                                    _productSearch.clear();
+                                    setState(() {});
+                                  },
+                                ),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                        onSubmitted: _onSearchSubmitted,
+                      ),
+                    ),
+                  ],
                   child: SingleChildScrollView(
-                    child: Wrap(spacing: 12, runSpacing: 12, children: [
-                      for (final p in _store.products.where((p) => p.active))
-                        SizedBox(
-                          width: 210,
-                          child: Card(
-                            color: Colors.grey.shade50,
-                            child: InkWell(
-                              onTap: p.stock > 0 ? () => _posRepository.addToCart(p) : null,
-                              child: Padding(
-                                padding: const EdgeInsets.all(14),
-                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  Text(p.name, style: Theme.of(context).textTheme.titleMedium),
-                                  const SizedBox(height: 8),
-                                  Text(p.sku),
-                                  Text('Stock: ${p.stock.toStringAsFixed(0)}'),
-                                  Text(AppFormatters.currency(p.sellingPrice), style: Theme.of(context).textTheme.titleLarge),
-                                ]),
+                    child: Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        for (final p in _visibleProducts)
+                          SizedBox(
+                            width: 210,
+                            child: Card(
+                              clipBehavior: Clip.antiAlias,
+                              color: Colors.grey.shade50,
+                              child: InkWell(
+                                onTap: p.stock > 0
+                                    ? () => _posRepository.addToCart(p)
+                                    : null,
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    _productImage(p),
+                                    Padding(
+                                      padding: const EdgeInsets.all(14),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            p.name,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.titleMedium,
+                                          ),
+                                          // Without this every size and colour
+                                          // of a design looks identical on the
+                                          // counter screen.
+                                          if (p.variantLabel.isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                top: 4,
+                                              ),
+                                              child: Chip(
+                                                label: Text(p.variantLabel),
+                                                visualDensity:
+                                                    VisualDensity.compact,
+                                                padding: EdgeInsets.zero,
+                                              ),
+                                            ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            p.sku,
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.bodySmall,
+                                          ),
+                                          Text(
+                                            'Stock: ${AppFormatters.quantity(p.stock)}',
+                                            style: TextStyle(
+                                              color: p.lowStock
+                                                  ? Theme.of(
+                                                      context,
+                                                    ).colorScheme.error
+                                                  : null,
+                                            ),
+                                          ),
+                                          Text(
+                                            AppFormatters.currency(
+                                              p.sellingPrice,
+                                            ),
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.titleLarge,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                    ]),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -100,33 +194,74 @@ class _PosPageState extends State<PosPage> {
                 flex: 2,
                 child: SectionCard(
                   title: 'Cart',
-                  actions: [Text(AppFormatters.currency(total), style: Theme.of(context).textTheme.titleLarge)],
+                  actions: [
+                    Text(
+                      AppFormatters.currency(total),
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ],
                   child: SingleChildScrollView(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      _customerPicker(),
-                      const SizedBox(height: 16),
-                      for (final line in _store.cart)
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(line.product.name),
-                          subtitle: Text('${line.quantity} × ${AppFormatters.currency(line.product.sellingPrice)}'),
-                          trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => _posRepository.removeFromCart(line)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _customerPicker(),
+                        const SizedBox(height: 16),
+                        for (final line in _store.cart)
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(line.product.displayName),
+                            subtitle: Text(
+                              '${line.quantity} × ${AppFormatters.currency(line.product.sellingPrice)}',
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () =>
+                                  _posRepository.removeFromCart(line),
+                            ),
+                          ),
+                        if (_store.cart.isEmpty)
+                          const Text('Add products to start a sale.'),
+                        const Divider(height: 28),
+                        _totalsPanel(total),
+                        const SizedBox(height: 16),
+                        _paymentPanel(total),
+                        const SizedBox(height: 16),
+                        DropdownButtonFormField<InvoicePaper>(
+                          initialValue: _paper,
+                          decoration: const InputDecoration(
+                            labelText: 'Print on',
+                            prefixIcon: Icon(Icons.receipt_long),
+                          ),
+                          items: [
+                            for (final paper in InvoicePaper.values)
+                              DropdownMenuItem(
+                                value: paper,
+                                child: Text(paper.label),
+                              ),
+                          ],
+                          onChanged: (paper) =>
+                              setState(() => _paper = paper ?? _paper),
                         ),
-                      if (_store.cart.isEmpty) const Text('Add products to start a sale.'),
-                      const Divider(height: 28),
-                      _totalsPanel(total),
-                      const SizedBox(height: 16),
-                      _paymentPanel(total),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: _canCheckout(total) ? () => _checkout(context) : null,
-                          icon: _checkingOut ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.receipt),
-                          label: const Text('Checkout and print receipt'),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: _canCheckout(total)
+                                ? () => _checkout(context)
+                                : null,
+                            icon: _checkingOut
+                                ? const SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.receipt),
+                            label: const Text('Checkout and print receipt'),
+                          ),
                         ),
-                      ),
-                    ]),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -138,67 +273,249 @@ class _PosPageState extends State<PosPage> {
   }
 
   Widget _customerPicker() {
-    final filtered = _store.customers.where((customer) => customer.name.toLowerCase().contains(_customerSearch.text.trim().toLowerCase())).toList();
-    if (_selectedCustomer != null && !filtered.any((customer) => customer.id == _selectedCustomer!.id)) {
+    final filtered = _store.customers
+        .where(
+          (customer) => customer.name.toLowerCase().contains(
+            _customerSearch.text.trim().toLowerCase(),
+          ),
+        )
+        .toList();
+    if (_selectedCustomer != null &&
+        !filtered.any((customer) => customer.id == _selectedCustomer!.id)) {
       filtered.insert(0, _selectedCustomer!);
     }
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      TextField(controller: _customerSearch, decoration: const InputDecoration(labelText: 'Search customer', prefixIcon: Icon(Icons.search)), onChanged: (_) => setState(() {})),
-      const SizedBox(height: 8),
-      DropdownButtonFormField<CustomerRecord>(
-        value: _selectedCustomer,
-        decoration: const InputDecoration(labelText: 'Customer'),
-        items: filtered.map((customer) => DropdownMenuItem(value: customer, child: Text(customer.name))).toList(),
-        onChanged: (customer) => setState(() => _selectedCustomer = customer),
-      ),
-    ]);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _customerSearch,
+          decoration: const InputDecoration(
+            labelText: 'Search customer',
+            prefixIcon: Icon(Icons.search),
+          ),
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<CustomerRecord>(
+          initialValue: _selectedCustomer,
+          decoration: const InputDecoration(labelText: 'Customer'),
+          items: filtered
+              .map(
+                (customer) => DropdownMenuItem(
+                  value: customer,
+                  child: Text(customer.name),
+                ),
+              )
+              .toList(),
+          onChanged: (customer) => setState(() => _selectedCustomer = customer),
+        ),
+      ],
+    );
   }
 
   Widget _totalsPanel(double total) {
-    final subtotal = _store.cart.fold(0.0, (sum, line) => sum + line.quantity * line.product.sellingPrice);
-    final tax = _store.cart.fold(0.0, (sum, line) => sum + line.quantity * line.product.sellingPrice * line.product.taxRate / 100);
-    return Column(children: [
-      _amountRow('Subtotal', subtotal),
-      _amountRow('Tax', tax),
-      const Divider(),
-      _amountRow('Total', total, prominent: true),
-    ]);
+    // Taxes come from the store so the panel always agrees with what the sale
+    // will actually record — including the CGST/SGST versus IGST split.
+    var taxable = 0.0, cgst = 0.0, sgst = 0.0, igst = 0.0, discount = 0.0;
+    for (final line in _store.cart) {
+      final tax = _store.lineTaxFor(line, customer: _selectedCustomer);
+      taxable += tax.taxableValue;
+      cgst += tax.cgst;
+      sgst += tax.sgst;
+      igst += tax.igst;
+      discount += line.discount;
+    }
+    return Column(
+      children: [
+        _amountRow('Taxable value', taxable),
+        if (discount > 0) _amountRow('Discount', discount),
+        if (cgst > 0) _amountRow('CGST', cgst),
+        if (sgst > 0) _amountRow('SGST', sgst),
+        if (igst > 0) _amountRow('IGST', igst),
+        const Divider(),
+        _amountRow('Total', total, prominent: true),
+      ],
+    );
   }
 
   Widget _paymentPanel(double total) {
     final paid = _paidAmount;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      SegmentedButton<_PaymentMode>(
-        segments: const [
-          ButtonSegment(value: _PaymentMode.cash, label: Text('Cash'), icon: Icon(Icons.payments)),
-          ButtonSegment(value: _PaymentMode.card, label: Text('Card'), icon: Icon(Icons.credit_card)),
-          ButtonSegment(value: _PaymentMode.split, label: Text('Split'), icon: Icon(Icons.call_split)),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SegmentedButton<_PaymentMode>(
+          segments: const [
+            ButtonSegment(
+              value: _PaymentMode.cash,
+              label: Text('Cash'),
+              icon: Icon(Icons.payments),
+            ),
+            ButtonSegment(
+              value: _PaymentMode.card,
+              label: Text('Card'),
+              icon: Icon(Icons.credit_card),
+            ),
+            ButtonSegment(
+              value: _PaymentMode.upi,
+              label: Text('UPI'),
+              icon: Icon(Icons.qr_code_2),
+            ),
+            ButtonSegment(
+              value: _PaymentMode.split,
+              label: Text('Split'),
+              icon: Icon(Icons.call_split),
+            ),
+          ],
+          selected: {_paymentMode},
+          onSelectionChanged: (selection) =>
+              setState(() => _paymentMode = selection.single),
+        ),
+        const SizedBox(height: 12),
+        if (_paymentMode == _PaymentMode.cash)
+          TextField(
+            controller: _cashTendered,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Cash tendered'),
+          ),
+        if (_paymentMode == _PaymentMode.card)
+          const Text('Card payment will charge the full grand total.'),
+        if (_paymentMode == _PaymentMode.upi)
+          const Text('UPI payment will charge the full grand total.'),
+        if (_paymentMode == _PaymentMode.split) ...[
+          TextField(
+            controller: _splitCash,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Cash amount'),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _splitCard,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Card amount'),
+          ),
         ],
-        selected: {_paymentMode},
-        onSelectionChanged: (selection) => setState(() => _paymentMode = selection.single),
-      ),
-      const SizedBox(height: 12),
-      if (_paymentMode == _PaymentMode.cash) TextField(controller: _cashTendered, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Cash tendered')),
-      if (_paymentMode == _PaymentMode.card) const Text('Card payment will charge the full grand total.'),
-      if (_paymentMode == _PaymentMode.split) ...[
-        TextField(controller: _splitCash, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Cash amount')),
-        const SizedBox(height: 8),
-        TextField(controller: _splitCard, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Card amount')),
+        const SizedBox(height: 10),
+        _amountRow('Paid', paid),
+        _amountRow('Change due', _changeDue(total)),
       ],
-      const SizedBox(height: 10),
-      _amountRow('Paid', paid),
-      _amountRow('Change due', _changeDue(total)),
-    ]);
+    );
   }
 
-  Widget _amountRow(String label, double amount, {bool prominent = false}) => Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(label, style: prominent ? const TextStyle(fontWeight: FontWeight.bold) : null), Text(AppFormatters.currency(amount), style: prominent ? const TextStyle(fontWeight: FontWeight.bold) : null)]);
+  Widget _amountRow(
+    String label,
+    double amount, {
+    bool prominent = false,
+  }) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(
+        label,
+        style: prominent ? const TextStyle(fontWeight: FontWeight.bold) : null,
+      ),
+      Text(
+        AppFormatters.currency(amount),
+        style: prominent ? const TextStyle(fontWeight: FontWeight.bold) : null,
+      ),
+    ],
+  );
 
-  double get _cartTotal => _store.cart.fold(0.0, (sum, line) => sum + line.total);
-  double get _paidAmount => switch (_paymentMode) { _PaymentMode.cash => _parse(_cashTendered.text), _PaymentMode.card => _cartTotal, _PaymentMode.split => _parse(_splitCash.text) + _parse(_splitCard.text) };
-  String get _paymentLabel => switch (_paymentMode) { _PaymentMode.cash => 'Cash', _PaymentMode.card => 'Card', _PaymentMode.split => 'Split: cash ${AppFormatters.currency(_parse(_splitCash.text))}, card ${AppFormatters.currency(_parse(_splitCard.text))}' };
-  String get _paymentMethodValue => switch (_paymentMode) { _PaymentMode.cash => 'cash', _PaymentMode.card => 'card', _PaymentMode.split => 'split' };
-  double get _cashAmountForSale => switch (_paymentMode) { _PaymentMode.cash => _cartTotal, _PaymentMode.card => 0, _PaymentMode.split => _parse(_splitCash.text) };
-  double get _cardAmountForSale => switch (_paymentMode) { _PaymentMode.cash => 0, _PaymentMode.card => _cartTotal, _PaymentMode.split => _parse(_splitCard.text) };
+  /// Products matching the search box, across name, SKU, barcode, size and
+  /// colour so a scanned code and a typed name both land here.
+  List<ProductRecord> get _visibleProducts {
+    final query = _productSearch.text.trim().toLowerCase();
+    final active = _store.products.where((p) => p.active);
+    if (query.isEmpty) return active.toList();
+    return active
+        .where(
+          (p) =>
+              '${p.name} ${p.sku} ${p.barcode} ${p.size} ${p.color} ${p.category} ${p.brand}'
+                  .toLowerCase()
+                  .contains(query),
+        )
+        .toList();
+  }
+
+  /// A barcode scanner in keyboard-wedge mode types the code then sends Enter,
+  /// which arrives here. An exact barcode or SKU match is added to the cart
+  /// straight away and the box clears, ready for the next scan.
+  void _onSearchSubmitted(String value) {
+    final code = value.trim().toLowerCase();
+    if (code.isEmpty) return;
+
+    final exact = _store.products
+        .where(
+          (p) =>
+              p.active &&
+              (p.barcode.toLowerCase() == code || p.sku.toLowerCase() == code),
+        )
+        .cast<ProductRecord?>()
+        .firstOrNull;
+
+    // A single search hit is unambiguous, so treat it the same as a scan.
+    final matches = _visibleProducts;
+    final target = exact ?? (matches.length == 1 ? matches.single : null);
+
+    if (target == null) return;
+    if (target.stock <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${target.displayName} is out of stock')),
+      );
+      return;
+    }
+    _posRepository.addToCart(target);
+    _productSearch.clear();
+    setState(() {});
+    // Keep the caret in the box so the next scan needs no click.
+    _productSearchFocus.requestFocus();
+  }
+
+  Widget _productImage(ProductRecord product) {
+    final path = product.imagePath;
+    final file = path == null || !File(path).existsSync() ? null : File(path);
+    return Container(
+      height: 108,
+      width: double.infinity,
+      color: Colors.grey.shade200,
+      child: file == null
+          ? Icon(Icons.checkroom, size: 34, color: Colors.grey.shade500)
+          : Image.file(file, fit: BoxFit.cover),
+    );
+  }
+
+  /// Grand total as the store will record it, so the button, the totals panel
+  /// and the saved sale can never disagree.
+  double get _cartTotal => _store.cartGrandTotal(customer: _selectedCustomer);
+
+  double get _paidAmount => switch (_paymentMode) {
+    _PaymentMode.cash => _parse(_cashTendered.text),
+    _PaymentMode.card || _PaymentMode.upi => _cartTotal,
+    _PaymentMode.split => _parse(_splitCash.text) + _parse(_splitCard.text),
+  };
+  String get _paymentLabel => switch (_paymentMode) {
+    _PaymentMode.cash => 'Paid by cash',
+    _PaymentMode.card => 'Paid by card',
+    _PaymentMode.upi => 'Paid by UPI',
+    _PaymentMode.split =>
+      'Split: cash ${AppFormatters.currency(_parse(_splitCash.text))}, card ${AppFormatters.currency(_parse(_splitCard.text))}',
+  };
+  String get _paymentMethodValue => switch (_paymentMode) {
+    _PaymentMode.cash => 'cash',
+    _PaymentMode.card => 'card',
+    _PaymentMode.upi => 'upi',
+    _PaymentMode.split => 'split',
+  };
+  double get _cashAmountForSale => switch (_paymentMode) {
+    _PaymentMode.cash => _cartTotal,
+    _PaymentMode.card || _PaymentMode.upi => 0,
+    _PaymentMode.split => _parse(_splitCash.text),
+  };
+  double get _cardAmountForSale => switch (_paymentMode) {
+    _PaymentMode.cash || _PaymentMode.upi => 0,
+    _PaymentMode.card => _cartTotal,
+    _PaymentMode.split => _parse(_splitCard.text),
+  };
+  double get _upiAmountForSale =>
+      _paymentMode == _PaymentMode.upi ? _cartTotal : 0;
 
   CustomerRecord? get _walkInCustomer {
     for (final customer in _store.customers) {
@@ -207,28 +524,67 @@ class _PosPageState extends State<PosPage> {
     return _store.customers.isEmpty ? null : _store.customers.first;
   }
 
-  CustomerRecord? _resolveSelectedCustomer(CustomerRecord? selected, CustomerRecord? walkIn) {
-    if (selected != null && _store.customers.any((customer) => customer.id == selected.id)) return selected;
+  /// [RetailStore.refresh] rebuilds [RetailStore.customers] with new instances, so the previous
+  /// selection is matched by id and swapped for the live record. Returning the stale instance
+  /// would leave the dropdown holding a value that is not identical to any of its items, which
+  /// trips the `DropdownButtonFormField` "exactly one item with value" assertion on the next build.
+  CustomerRecord? _resolveSelectedCustomer(
+    CustomerRecord? selected,
+    CustomerRecord? walkIn,
+  ) {
+    if (selected == null) return walkIn;
+    for (final customer in _store.customers) {
+      if (customer.id == selected.id) return customer;
+    }
     return walkIn;
   }
 
+  /// Called from [build], so the controller writes are deferred to the end of the frame: the
+  /// controllers have listeners that call [setState], which cannot run while the tree is building.
   void _syncPaymentDefaults(double total) {
-    final formattedTotal = total == 0 ? '' : total.toStringAsFixed(2);
-    if (_paymentMode == _PaymentMode.cash && _cashTendered.text.isEmpty && total > 0) _cashTendered.text = formattedTotal;
-    if (_paymentMode == _PaymentMode.split && _splitCard.text.isEmpty && _splitCash.text.isEmpty && total > 0) _splitCard.text = formattedTotal;
+    if (total <= 0) return;
+    final needsCash =
+        _paymentMode == _PaymentMode.cash && _cashTendered.text.isEmpty;
+    final needsSplit =
+        _paymentMode == _PaymentMode.split &&
+        _splitCard.text.isEmpty &&
+        _splitCash.text.isEmpty;
+    if (!needsCash && !needsSplit) return;
+    final formattedTotal = total.toStringAsFixed(2);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (needsCash && _cashTendered.text.isEmpty) {
+        _cashTendered.text = formattedTotal;
+      }
+      if (needsSplit && _splitCard.text.isEmpty && _splitCash.text.isEmpty) {
+        _splitCard.text = formattedTotal;
+      }
+    });
   }
 
   bool _canCheckout(double total) {
     if (_checkingOut || _store.cart.isEmpty) return false;
-    if (_paymentMode == _PaymentMode.split) return (_paidAmount - total).abs() < 0.01;
+    if (_paymentMode == _PaymentMode.split) {
+      return (_paidAmount - total).abs() < 0.01;
+    }
     return _paidAmount + 0.01 >= total;
   }
 
-  double _changeDue(double total) => _paymentMode == _PaymentMode.cash ? (_paidAmount - total).clamp(0, double.infinity).toDouble() : 0;
+  double _changeDue(double total) => _paymentMode == _PaymentMode.cash
+      ? (_paidAmount - total).clamp(0, double.infinity).toDouble()
+      : 0;
   double _parse(String value) => double.tryParse(value.trim()) ?? 0;
 
   void _onPaymentChanged() {
     if (mounted) setState(() {});
+  }
+
+  /// The cart is emptied by the checkout, so the amounts tendered for the sale that just
+  /// completed must not carry over into the next one.
+  void _resetPaymentInputs() {
+    _cashTendered.clear();
+    _splitCash.clear();
+    _splitCard.clear();
   }
 
   Future<void> _checkout(BuildContext context) async {
@@ -240,59 +596,49 @@ class _PosPageState extends State<PosPage> {
     final paymentMethod = _paymentMethodValue;
     final cashAmount = _cashAmountForSale;
     final cardAmount = _cardAmountForSale;
+    final upiAmount = _upiAmountForSale;
     setState(() => _checkingOut = true);
     try {
-      final sale = await _posRepository.checkout(customer: customer, paid: paid, paymentMethod: paymentMethod, cashAmount: cashAmount, cardAmount: cardAmount);
+      final sale = await _posRepository.checkout(
+        customer: customer,
+        paid: paid,
+        paymentMethod: paymentMethod,
+        cashAmount: cashAmount,
+        cardAmount: cardAmount,
+        upiAmount: upiAmount,
+      );
+      _resetPaymentInputs();
       if (!context.mounted) return;
-      await Printing.layoutPdf(name: sale.receipt, onLayout: (_) => _buildReceiptPdf(sale: sale, lines: receiptLines, paid: paid, change: change, paymentLabel: paymentLabel));
+      final invoice = InvoiceData(
+        sale: sale,
+        lines: invoiceLinesFor(
+          cart: receiptLines,
+          settings: _store.gstSettings,
+          interState: sale.isInterState,
+          hsnFor: (product) => product.hsnCode.trim().isNotEmpty
+              ? product.hsnCode.trim()
+              : _store.gstSettings.defaultHsnCode,
+          rateFor: _store.gstRateFor,
+        ),
+        profile: _store.storeProfile,
+        paid: paid,
+        change: change,
+        paymentLabel: paymentLabel,
+        customerName: customer?.name,
+        customerPhone: customer?.phone,
+        customerAddress: customer?.address,
+      );
+      await Printing.layoutPdf(
+        name: sale.receipt,
+        format: _paper.format,
+        onLayout: (_) => buildInvoicePdf(data: invoice, paper: _paper),
+      );
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Completed ${sale.receipt}')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Completed ${sale.receipt}')));
     } finally {
       if (mounted) setState(() => _checkingOut = false);
     }
   }
-
-  Future<Uint8List> _buildReceiptPdf({required SaleRecord sale, required List<CartLine> lines, required double paid, required double change, required String paymentLabel}) async {
-    final profile = _store.storeProfile;
-    final document = pw.Document();
-    pw.MemoryImage? logo;
-    final logoPath = profile?.logoPath;
-    if (logoPath != null && logoPath.trim().isNotEmpty) {
-      final file = File(logoPath);
-      if (await file.exists()) logo = pw.MemoryImage(await file.readAsBytes());
-    }
-    final subtotal = lines.fold(0.0, (sum, line) => sum + line.quantity * line.product.sellingPrice);
-    final tax = lines.fold(0.0, (sum, line) => sum + line.quantity * line.product.sellingPrice * line.product.taxRate / 100);
-    document.addPage(pw.MultiPage(
-      pageFormat: PdfPageFormat.letter,
-      build: (context) => [
-        pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-          if (logo != null) pw.Container(width: 72, height: 72, margin: const pw.EdgeInsets.only(right: 16), child: pw.Image(logo, fit: pw.BoxFit.contain)),
-          pw.Expanded(child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-            pw.Text(profile?.storeName ?? 'RetailPro', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
-            if ((profile?.address ?? '').isNotEmpty) pw.Text(profile!.address!),
-            if ((profile?.phone ?? '').isNotEmpty) pw.Text('Phone: ${profile!.phone!}'),
-          ])),
-          pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [pw.Text('Receipt ${sale.receipt}'), pw.Text(AppFormatters.dateTime(sale.createdAt)), pw.Text('Customer: ${sale.customerName}')]),
-        ]),
-        pw.SizedBox(height: 24),
-        pw.TableHelper.fromTextArray(headers: ['Item', 'Qty', 'Unit', 'Line total'], data: lines.map((line) => [line.product.name, line.quantity.toString(), AppFormatters.currency(line.product.sellingPrice), AppFormatters.currency(line.total)]).toList()),
-        pw.SizedBox(height: 16),
-        pw.Align(alignment: pw.Alignment.centerRight, child: pw.SizedBox(width: 220, child: pw.Column(children: [
-          _pdfAmountRow('Subtotal', subtotal),
-          _pdfAmountRow('Tax', tax),
-          _pdfAmountRow('Total', sale.total),
-          _pdfAmountRow('Paid', paid),
-          _pdfAmountRow('Change due', change),
-          pw.SizedBox(height: 6),
-          pw.Text(paymentLabel),
-        ]))),
-        pw.SizedBox(height: 32),
-        if ((profile?.receiptFooterText ?? '').isNotEmpty) pw.Center(child: pw.Text(profile!.receiptFooterText!)),
-      ],
-    ));
-    return document.save();
-  }
-
-  pw.Widget _pdfAmountRow(String label, double amount) => pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text(label), pw.Text(AppFormatters.currency(amount))]);
 }

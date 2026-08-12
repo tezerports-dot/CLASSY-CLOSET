@@ -29,12 +29,20 @@ class _SupplierFormDialogState extends State<SupplierFormDialog> {
     _phone = TextEditingController(text: supplier?.phone ?? '');
     _email = TextEditingController(text: supplier?.email ?? '');
     _address = TextEditingController(text: supplier?.address ?? '');
-    _openingBalance = TextEditingController(text: _format(supplier?.openingBalance));
+    _openingBalance = TextEditingController(
+      text: _format(supplier?.openingBalance),
+    );
   }
 
   @override
   void dispose() {
-    for (final controller in [_name, _phone, _email, _address, _openingBalance]) {
+    for (final controller in [
+      _name,
+      _phone,
+      _email,
+      _address,
+      _openingBalance,
+    ]) {
       controller.dispose();
     }
     super.dispose();
@@ -49,30 +57,67 @@ class _SupplierFormDialogState extends State<SupplierFormDialog> {
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              _field(_name, 'Name', validator: Validators.requiredText),
-              _field(_phone, 'Phone'),
-              _field(_email, 'Email'),
-              _field(_address, 'Address', maxLines: 3),
-              _field(_openingBalance, 'Opening balance', validator: Validators.nonNegativeNumber),
-            ]),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _field(_name, 'Name', validator: Validators.requiredText),
+                _field(_phone, 'Phone'),
+                _field(_email, 'Email'),
+                _field(_address, 'Address', maxLines: 3),
+                _field(
+                  _openingBalance,
+                  'Opening balance',
+                  validator: Validators.nonNegativeNumber,
+                ),
+              ],
+            ),
           ),
         ),
       ),
-      actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')), FilledButton(onPressed: _save, child: const Text('Save'))],
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('Save')),
+      ],
     );
   }
 
-  Widget _field(TextEditingController controller, String label, {String? Function(String?)? validator, int maxLines = 1}) => Padding(padding: const EdgeInsets.only(bottom: 12), child: TextFormField(controller: controller, decoration: InputDecoration(labelText: label), validator: validator, maxLines: maxLines));
+  Widget _field(
+    TextEditingController controller,
+    String label, {
+    String? Function(String?)? validator,
+    int maxLines = 1,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: TextFormField(
+      controller: controller,
+      decoration: InputDecoration(labelText: label),
+      validator: validator,
+      maxLines: maxLines,
+    ),
+  );
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     final opening = _parse(_openingBalance.text);
     final existing = widget.supplier;
-    await widget.store.saveSupplier(SupplierRecord(id: existing?.id ?? 0, name: _name.text.trim(), phone: _phone.text.trim(), email: _email.text.trim(), address: _address.text.trim(), openingBalance: opening, balance: existing == null ? opening : existing.balance));
+    await widget.store.saveSupplier(
+      SupplierRecord(
+        id: existing?.id ?? 0,
+        name: _name.text.trim(),
+        phone: _phone.text.trim(),
+        email: _email.text.trim(),
+        address: _address.text.trim(),
+        openingBalance: opening,
+        balance: existing == null ? opening : existing.balance,
+      ),
+    );
     if (mounted) Navigator.of(context).pop();
   }
 
   double _parse(String value) => double.tryParse(value.trim()) ?? 0;
-  String _format(double? value) => value == null || value == 0 ? '' : value.toString();
+  String _format(double? value) =>
+      value == null || value == 0 ? '' : value.toString();
 }
