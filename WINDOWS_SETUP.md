@@ -387,22 +387,62 @@ Your data is untouched — it lives outside the project folder.
 
 ---
 
+## Day-to-day: the other screens
+
+Beyond billing, these are wired up and working:
+
+| Screen | What it does |
+| --- | --- |
+| **Purchases** | Record a delivery against the supplier's invoice number. Stock goes up, the cost price follows the new invoice, and anything unpaid is added to what you owe that supplier. |
+| **Returns** | Scan or type the bill number, pick what is coming back, and refund by cash, card, UPI or credit. Stock goes back on the shelf and a credit note is numbered. |
+| **Till** | Open with a counted float, record cash paid in or out during the day, then close by counting the drawer. The difference is recorded against whoever was on the counter. |
+| **Expenses** | Rent, wages, electricity. This is what turns gross margin into real net profit on the reports. |
+| **Reports** | Sales register, GST by rate, HSN summary, best sellers and dead stock, for any date range. Every table exports to CSV for your accountant. |
+| **Print labels** | On any design in Products. Barcode price labels for the whole size run, on A4 label sheets or a label roll. |
+
+### Printing barcode labels
+
+Go to **Products**, find the design, click **Print labels**.
+
+1. Pick your label stock — 65, 24 or 12 labels per A4 sheet, or a 50 × 25 mm
+   roll.
+2. Choose what goes on the label: shop name, product name, size/colour, MRP.
+3. Copies default to the stock you have, since usually a delivery has just
+   arrived and every piece needs one.
+4. Click **Preview** first — it costs nothing and saves wasting a sheet if the
+   alignment is wrong.
+
+Buy A4 label sheets that match one of the three layouts. The most common in
+India is the 65-up (38 × 21 mm) sheet.
+
+### Closing the day
+
+1. **Till → Close the till.** Count the cash in the drawer, type the total.
+   The app tells you if you are short or over.
+2. **Settings → Backup & restore → Back up now.** To a pen drive.
+
+That is the whole end-of-day routine.
+
+---
+
 ## What is not built yet
 
-Be aware of these before you rely on the app for the whole shop:
+Be aware of these before you rely on the app for everything:
 
-- **No returns or exchanges.** The most common apparel transaction after a
-  sale cannot be recorded yet.
-- **No cashier shift or day-end (X/Z) report.** Cash has to be counted against
-  the sales list by hand.
-- **No purchase orders or goods receipt.** New stock is added by editing the
-  design.
-- **Printing goes through the Windows print dialog.** Direct thermal printing
-  and automatic cash-drawer opening are not wired up, so there is a dialog on
-  every sale.
+- **Printing goes through the Windows print dialog.** Direct thermal ESC/POS
+  printing and automatic cash-drawer opening are not wired up, so there is a
+  print dialog on every sale. The drawer has to be opened by its key or by the
+  printer's own button.
+- **No physical stock count.** You can correct a count by editing the design's
+  grid, but there is no scan-and-count session with a variance report.
+- **No customer or supplier statement to print.** Balances are shown on screen
+  but cannot be handed to someone as a document.
+- **No loyalty points or promotions.**
+- **No e-invoicing (IRN/QR).** Only relevant above a turnover threshold —
+  check with your accountant whether it applies to you.
+- **One shop only.** There is no multi-branch stock transfer.
 
-The GST calculation, the invoice numbering and the tax invoice layout **are**
-finished and tested.
+Everything else described in this guide is finished and tested.
 
 > **Set your GST rates before the first bill.** Go to **Settings → GST**. The
 > app starts with the GST 2.0 apparel bands — 5% at or below ₹2,500 a piece,
