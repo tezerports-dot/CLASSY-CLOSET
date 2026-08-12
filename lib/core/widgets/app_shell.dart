@@ -140,6 +140,13 @@ const _navItems = <_NavEntry>[
     '/products',
     Permission.viewProducts,
   ),
+  _NavEntry(
+    Icons.assignment_return,
+    'Returns',
+    '/returns',
+    Permission.processReturns,
+  ),
+  _NavEntry(Icons.savings, 'Till', '/shift', Permission.manageShift),
   _NavEntry(Icons.people, 'Customers', '/customers', Permission.viewCustomers),
   _NavEntry(
     Icons.local_shipping,

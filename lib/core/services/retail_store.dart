@@ -11,6 +11,7 @@ import '../database/app_database.dart';
 import '../utils/formatters.dart';
 import 'gst.dart';
 import 'permissions.dart';
+import 'returns_and_shifts.dart';
 
 class AppUser {
   const AppUser({
@@ -479,7 +480,10 @@ class RetailStore extends ChangeNotifier {
       _loadSales(),
       _loadAuditLogs(),
       _loadUsers(),
+      _loadReturns(),
     ]);
+    // Shifts read the user list, so they load after it rather than alongside.
+    await _loadShifts();
     _rebuildStyles();
     notifyListeners();
   }
@@ -1205,6 +1209,7 @@ class RetailStore extends ChangeNotifier {
                 customer?.effectiveStateCode ??
                     storeProfile?.effectiveStateCode,
               ),
+              shiftId: Value(openShift?.id),
               customerGstin: Value(
                 (customer?.gstin.trim().isNotEmpty ?? false)
                     ? customer!.gstin.trim()
@@ -1336,6 +1341,532 @@ class RetailStore extends ChangeNotifier {
   }
 
   static double _money(double value) => (value * 100).roundToDouble() / 100;
+
+  // ------------------------------------------------------------- returns
+
+  /// Finds a bill by its number so it can be returned against.
+  ///
+  /// Quantities already refunded on earlier returns are subtracted, so the
+  /// same garment cannot be refunded twice.
+  Future<ReturnableSale?> findSaleByReceipt(String receiptNumber) async {
+    final query = receiptNumber.trim();
+    if (query.isEmpty) return null;
+
+    final sale = await (_db.select(
+      _db.sales,
+    )..where((s) => s.receiptNumber.equals(query))).getSingleOrNull();
+    if (sale == null) return null;
+
+    final items = await (_db.select(
+      _db.saleItems,
+    )..where((i) => i.saleId.equals(sale.id))).get();
+
+    // Everything already returned against this bill, per sale line.
+    final returnedByProduct = <int, double>{};
+    final priorReturns = await (_db.select(
+      _db.returns,
+    )..where((r) => r.saleId.equals(sale.id))).get();
+    if (priorReturns.isNotEmpty) {
+      final ids = priorReturns.map((r) => r.id).toList();
+      final priorItems = await (_db.select(
+        _db.returnItems,
+      )..where((i) => i.returnId.isIn(ids))).get();
+      for (final item in priorItems) {
+        returnedByProduct.update(
+          item.productId,
+          (v) => v + item.quantity,
+          ifAbsent: () => item.quantity,
+        );
+      }
+    }
+
+    final products = {
+      for (final p in await _db.select(_db.products).get()) p.id: p,
+    };
+    final customer = sale.customerId == null
+        ? null
+        : await (_db.select(
+            _db.customers,
+          )..where((c) => c.id.equals(sale.customerId!))).getSingleOrNull();
+
+    return ReturnableSale(
+      saleId: sale.id,
+      receiptNumber: sale.receiptNumber,
+      soldAt: sale.soldAt,
+      customerId: sale.customerId,
+      customerName: customer?.name ?? 'Walk-in',
+      grandTotal: sale.grandTotal,
+      isInterState: sale.igstTotal > 0,
+      lines: [
+        for (final item in items)
+          () {
+            final product = products[item.productId];
+            final label = product == null
+                ? 'Item ${item.productId}'
+                : [
+                    product.name,
+                    if ((product.color ?? '').isNotEmpty ||
+                        (product.size ?? '').isNotEmpty)
+                      '(${[product.color ?? '', product.size ?? ''].where((v) => v.isNotEmpty).join(' / ')})',
+                  ].join(' ');
+            return ReturnableLine(
+              saleItemId: item.id,
+              productId: item.productId,
+              description: label,
+              hsnCode: item.hsnCode ?? '',
+              soldQuantity: item.quantity,
+              alreadyReturned: returnedByProduct[item.productId] ?? 0,
+              unitPrice: item.unitPrice,
+              lineTotal: item.lineTotal,
+              taxRate: item.taxRate,
+              taxableValue: item.taxableValue,
+              taxAmount: item.taxAmount,
+              costPrice: item.costPrice,
+            );
+          }(),
+      ],
+    );
+  }
+
+  /// Takes goods back: restocks them, reverses the tax, and either refunds the
+  /// money or credits the customer's account.
+  ///
+  /// Returns the credit note, or throws [StateError] if nothing was selected.
+  Future<ReturnRecord> processReturn({
+    required ReturnableSale sale,
+    required List<ReturnSelection> selections,
+    required RefundMethod refundMethod,
+    String? reason,
+  }) async {
+    final chosen = selections.where((s) => s.quantity > 0).toList();
+    if (chosen.isEmpty) {
+      throw StateError('Choose at least one item to take back.');
+    }
+    for (final selection in chosen) {
+      if (selection.quantity > selection.line.returnableQuantity + 0.001) {
+        throw StateError(
+          'Cannot take back more ${selection.line.description} than was sold.',
+        );
+      }
+    }
+
+    var refundTotal = 0.0, taxable = 0.0, tax = 0.0;
+    for (final selection in chosen) {
+      final line = selection.line;
+      final refund = line.refundFor(selection.quantity);
+      refundTotal += refund;
+      // Tax comes back in the same proportion as the goods.
+      final share = line.soldQuantity == 0
+          ? 0.0
+          : selection.quantity / line.soldQuantity;
+      taxable += line.taxableValue * share;
+      tax += line.taxAmount * share;
+    }
+    refundTotal = _money(refundTotal);
+    taxable = _money(taxable);
+    tax = _money(tax);
+
+    final cgst = sale.isInterState ? 0.0 : _money(tax / 2);
+    final sgst = sale.isInterState ? 0.0 : _money(tax / 2);
+    final igst = sale.isInterState ? tax : 0.0;
+    final returnedAt = DateTime.now();
+
+    late ReturnRecord record;
+    await _db.transaction(() async {
+      final number = await _nextReturnNumber(returnedAt);
+      final returnId = await _db
+          .into(_db.returns)
+          .insert(
+            ReturnsCompanion.insert(
+              saleId: Value(sale.saleId),
+              returnNumber: number,
+              totalAmount: Value(refundTotal),
+              reason: Value(
+                reason?.trim().isEmpty ?? true ? null : reason!.trim(),
+              ),
+              userId: Value(currentUser?.id),
+              customerId: Value(sale.customerId),
+              refundMethod: Value(refundMethod.code),
+              taxableTotal: Value(taxable),
+              cgstTotal: Value(cgst),
+              sgstTotal: Value(sgst),
+              igstTotal: Value(igst),
+              returnedAt: Value(returnedAt),
+            ),
+          );
+
+      for (final selection in chosen) {
+        final line = selection.line;
+        final share = line.soldQuantity == 0
+            ? 0.0
+            : selection.quantity / line.soldQuantity;
+        await _db
+            .into(_db.returnItems)
+            .insert(
+              ReturnItemsCompanion.insert(
+                returnId: returnId,
+                productId: line.productId,
+                quantity: selection.quantity,
+                refundAmount: _money(line.refundFor(selection.quantity)),
+                unitPrice: Value(line.unitPrice),
+                taxRate: Value(line.taxRate),
+                taxableValue: Value(_money(line.taxableValue * share)),
+                taxAmount: Value(_money(line.taxAmount * share)),
+                costPrice: Value(line.costPrice),
+                hsnCode: Value(line.hsnCode.isEmpty ? null : line.hsnCode),
+              ),
+            );
+
+        // Goods come back onto the shelf.
+        final product = await (_db.select(
+          _db.products,
+        )..where((p) => p.id.equals(line.productId))).getSingleOrNull();
+        if (product != null) {
+          await (_db.update(
+            _db.products,
+          )..where((p) => p.id.equals(line.productId))).write(
+            ProductsCompanion(
+              currentStock: Value(product.currentStock + selection.quantity),
+            ),
+          );
+        }
+        await _db
+            .into(_db.inventoryMovements)
+            .insert(
+              InventoryMovementsCompanion.insert(
+                productId: line.productId,
+                movementType: 'return',
+                quantity: selection.quantity,
+                referenceType: const Value('returns'),
+                referenceId: Value(returnId),
+              ),
+            );
+      }
+
+      // A credit refund reduces what the customer owes rather than opening the
+      // drawer.
+      if (refundMethod == RefundMethod.credit && sale.customerId != null) {
+        final customer = await (_db.select(
+          _db.customers,
+        )..where((c) => c.id.equals(sale.customerId!))).getSingleOrNull();
+        if (customer != null) {
+          await (_db.update(
+            _db.customers,
+          )..where((c) => c.id.equals(sale.customerId!))).write(
+            CustomersCompanion(
+              currentBalance: Value(
+                _money(customer.currentBalance - refundTotal),
+              ),
+            ),
+          );
+        }
+      }
+
+      await _audit(
+        'CREATE',
+        'returns',
+        returnId,
+        'Return $number against ${sale.receiptNumber} for '
+            '${AppFormatters.currency(refundTotal)}',
+      );
+
+      record = ReturnRecord(
+        id: returnId,
+        returnNumber: number,
+        saleReceipt: sale.receiptNumber,
+        customerName: sale.customerName,
+        totalAmount: refundTotal,
+        taxableTotal: taxable,
+        cgst: cgst,
+        sgst: sgst,
+        igst: igst,
+        refundMethod: refundMethod,
+        returnedAt: returnedAt,
+        reason: reason,
+        lineCount: chosen.length,
+      );
+    });
+
+    await refresh();
+    return record;
+  }
+
+  /// Credit-note numbers follow the same gapless-per-financial-year rule as
+  /// invoices, in their own sequence.
+  Future<String> _nextReturnNumber(DateTime at) async {
+    final startYear = at.month >= 4 ? at.year : at.year - 1;
+    final label = '${startYear % 100}${(startYear + 1) % 100}'.padLeft(4, '0');
+    const key = 'credit_note_counter';
+
+    final row = await (_db.select(
+      _db.settings,
+    )..where((s) => s.key.equals(key))).getSingleOrNull();
+    final stored = row == null
+        ? <String, dynamic>{}
+        : jsonDecode(row.valueJson) as Map<String, dynamic>;
+    final next =
+        (stored['year'] == label ? (stored['seq'] as int? ?? 0) : 0) + 1;
+
+    await _db
+        .into(_db.settings)
+        .insertOnConflictUpdate(
+          SettingsCompanion.insert(
+            key: key,
+            valueJson: jsonEncode({'year': label, 'seq': next}),
+          ),
+        );
+    return 'CN/$label/${next.toString().padLeft(4, '0')}';
+  }
+
+  final returns = <ReturnRecord>[];
+
+  Future<void> _loadReturns() async {
+    final customerNames = {
+      for (final c in await _db.select(_db.customers).get()) c.id: c.name,
+    };
+    final receipts = {
+      for (final s in await _db.select(_db.sales).get()) s.id: s.receiptNumber,
+    };
+    final counts = <int, int>{};
+    for (final item in await _db.select(_db.returnItems).get()) {
+      counts.update(item.returnId, (v) => v + 1, ifAbsent: () => 1);
+    }
+    final rows = await (_db.select(
+      _db.returns,
+    )..orderBy([(r) => OrderingTerm.desc(r.returnedAt)])).get();
+
+    returns
+      ..clear()
+      ..addAll(
+        rows.map(
+          (r) => ReturnRecord(
+            id: r.id,
+            returnNumber: r.returnNumber,
+            saleReceipt: receipts[r.saleId] ?? '—',
+            customerName: customerNames[r.customerId] ?? 'Walk-in',
+            totalAmount: r.totalAmount,
+            taxableTotal: r.taxableTotal,
+            cgst: r.cgstTotal,
+            sgst: r.sgstTotal,
+            igst: r.igstTotal,
+            refundMethod: RefundMethod.fromCode(r.refundMethod),
+            returnedAt: r.returnedAt,
+            reason: r.reason,
+            lineCount: counts[r.id] ?? 0,
+          ),
+        ),
+      );
+  }
+
+  // -------------------------------------------------------------- shifts
+
+  ShiftRecord? openShift;
+
+  /// Opens a till session for the signed-in user.
+  Future<ShiftRecord?> startShift({double openingFloat = 0}) async {
+    final user = currentUser;
+    if (user == null) return null;
+    if (openShift != null) return openShift;
+
+    final id = await _db
+        .into(_db.shifts)
+        .insert(
+          ShiftsCompanion.insert(
+            userId: user.id,
+            openingFloat: Value(openingFloat),
+          ),
+        );
+    await _audit(
+      'CREATE',
+      'shifts',
+      id,
+      'Opened till with ${AppFormatters.currency(openingFloat)} float',
+    );
+    await refresh();
+    return openShift;
+  }
+
+  /// Closes the session, storing the counted cash and what was expected so a
+  /// closed shift never changes afterwards.
+  Future<ShiftRecord?> endShift({
+    required double countedCash,
+    String? notes,
+  }) async {
+    final shift = openShift;
+    if (shift == null) return null;
+
+    final totals = await _shiftTotals(shift.id, shift.openedAt);
+    final expected =
+        shift.openingFloat +
+        totals.cashSales +
+        totals.paidIn -
+        totals.cashRefunds -
+        totals.paidOut;
+
+    await (_db.update(_db.shifts)..where((s) => s.id.equals(shift.id))).write(
+      ShiftsCompanion(
+        closedAt: Value(DateTime.now()),
+        closingCount: Value(_money(countedCash)),
+        expectedCash: Value(_money(expected)),
+        cashSales: Value(_money(totals.cashSales)),
+        cardSales: Value(_money(totals.cardSales)),
+        upiSales: Value(_money(totals.upiSales)),
+        cashRefunds: Value(_money(totals.cashRefunds)),
+        paidIn: Value(_money(totals.paidIn)),
+        paidOut: Value(_money(totals.paidOut)),
+        saleCount: Value(totals.saleCount),
+        notes: Value(notes?.trim().isEmpty ?? true ? null : notes!.trim()),
+      ),
+    );
+    final variance = _money(countedCash - expected);
+    await _audit(
+      'UPDATE',
+      'shifts',
+      shift.id,
+      'Closed till. Counted ${AppFormatters.currency(countedCash)}, '
+          'expected ${AppFormatters.currency(expected)}, '
+          'difference ${AppFormatters.currency(variance)}',
+    );
+    await refresh();
+    return shifts.where((s) => s.id == shift.id).firstOrNull;
+  }
+
+  /// Records money in or out of the drawer that was not a sale.
+  Future<void> recordCashMovement({
+    required bool isIn,
+    required double amount,
+    required String reason,
+  }) async {
+    final shift = openShift;
+    if (shift == null || amount <= 0) return;
+    await _db
+        .into(_db.cashMovements)
+        .insert(
+          CashMovementsCompanion.insert(
+            shiftId: shift.id,
+            userId: Value(currentUser?.id),
+            direction: isIn ? 'in' : 'out',
+            amount: _money(amount),
+            reason: reason.trim(),
+          ),
+        );
+    await _audit(
+      'CREATE',
+      'cash_movements',
+      shift.id,
+      '${isIn ? 'Paid in' : 'Paid out'} ${AppFormatters.currency(amount)}: '
+          '${reason.trim()}',
+    );
+    await refresh();
+  }
+
+  /// Live figures for the open session, for the X report.
+  Future<ShiftRecord?> currentShiftWithTotals() async {
+    final shift = openShift;
+    if (shift == null) return null;
+    final totals = await _shiftTotals(shift.id, shift.openedAt);
+    return ShiftRecord(
+      id: shift.id,
+      userId: shift.userId,
+      userName: shift.userName,
+      openedAt: shift.openedAt,
+      openingFloat: shift.openingFloat,
+      cashSales: _money(totals.cashSales),
+      cardSales: _money(totals.cardSales),
+      upiSales: _money(totals.upiSales),
+      cashRefunds: _money(totals.cashRefunds),
+      paidIn: _money(totals.paidIn),
+      paidOut: _money(totals.paidOut),
+      saleCount: totals.saleCount,
+    );
+  }
+
+  Future<_ShiftTotals> _shiftTotals(int shiftId, DateTime openedAt) async {
+    final sales = await (_db.select(
+      _db.sales,
+    )..where((s) => s.shiftId.equals(shiftId))).get();
+
+    var cash = 0.0, card = 0.0, upi = 0.0;
+    for (final sale in sales) {
+      cash += sale.cashAmount;
+      card += sale.cardAmount;
+      upi += sale.upiAmount;
+    }
+
+    // Returns are not stamped with a shift, so they are matched by time: any
+    // cash refund since this session opened came out of this drawer.
+    final refunds =
+        await (_db.select(_db.returns)..where(
+              (r) =>
+                  r.refundMethod.equals('cash') &
+                  r.returnedAt.isBiggerOrEqualValue(openedAt),
+            ))
+            .get();
+    final cashRefunds = refunds.fold(0.0, (sum, r) => sum + r.totalAmount);
+
+    final movements = await (_db.select(
+      _db.cashMovements,
+    )..where((m) => m.shiftId.equals(shiftId))).get();
+    var paidIn = 0.0, paidOut = 0.0;
+    for (final movement in movements) {
+      if (movement.direction == 'in') {
+        paidIn += movement.amount;
+      } else {
+        paidOut += movement.amount;
+      }
+    }
+
+    return _ShiftTotals(
+      cashSales: cash,
+      cardSales: card,
+      upiSales: upi,
+      cashRefunds: cashRefunds,
+      paidIn: paidIn,
+      paidOut: paidOut,
+      saleCount: sales.length,
+    );
+  }
+
+  final shifts = <ShiftRecord>[];
+
+  Future<void> _loadShifts() async {
+    final names = {
+      for (final u in await _db.select(_db.users).get()) u.id: u.fullName,
+    };
+    final rows = await (_db.select(
+      _db.shifts,
+    )..orderBy([(s) => OrderingTerm.desc(s.openedAt)])).get();
+
+    shifts
+      ..clear()
+      ..addAll(
+        rows.map(
+          (r) => ShiftRecord(
+            id: r.id,
+            userId: r.userId,
+            userName: names[r.userId] ?? 'Unknown',
+            openedAt: r.openedAt,
+            closedAt: r.closedAt,
+            openingFloat: r.openingFloat,
+            closingCount: r.closingCount,
+            expectedCash: r.expectedCash,
+            cashSales: r.cashSales,
+            cardSales: r.cardSales,
+            upiSales: r.upiSales,
+            cashRefunds: r.cashRefunds,
+            paidIn: r.paidIn,
+            paidOut: r.paidOut,
+            saleCount: r.saleCount,
+            notes: r.notes,
+          ),
+        ),
+      );
+
+    final mine = currentUser?.id;
+    openShift = shifts
+        .where((s) => s.isOpen && (mine == null || s.userId == mine))
+        .firstOrNull;
+  }
 
   Future<void> _seedFirstRunData() async {
     final rolesCount = await _db
@@ -1757,4 +2288,25 @@ class RetailStore extends ChangeNotifier {
   String _hash(String password) =>
       sha256.convert(utf8.encode(password)).toString();
   AppRole _roleFromName(String? name) => AppRole.fromName(name);
+}
+
+/// Running totals for one till session.
+class _ShiftTotals {
+  const _ShiftTotals({
+    required this.cashSales,
+    required this.cardSales,
+    required this.upiSales,
+    required this.cashRefunds,
+    required this.paidIn,
+    required this.paidOut,
+    required this.saleCount,
+  });
+
+  final double cashSales;
+  final double cardSales;
+  final double upiSales;
+  final double cashRefunds;
+  final double paidIn;
+  final double paidOut;
+  final int saleCount;
 }

@@ -153,4 +153,6 @@ String _permissionLabel(Permission permission) => switch (permission) {
   Permission.manageSettings => 'Change settings and GST rates',
   Permission.manageUsers => 'Manage staff accounts',
   Permission.backupRestore => 'Back up and restore',
+  Permission.processReturns => 'Take goods back and refund',
+  Permission.manageShift => 'Open and close the till',
 };

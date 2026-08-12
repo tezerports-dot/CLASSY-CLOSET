@@ -40,6 +40,12 @@ enum Permission {
 
   /// Take a backup or restore one.
   backupRestore,
+
+  /// Take goods back and refund or credit them.
+  processReturns,
+
+  /// Open and close a till session and count the drawer.
+  manageShift,
 }
 
 /// The roles a user can hold. The name stored in the database is matched
@@ -96,6 +102,8 @@ const Map<AppRole, Set<Permission>> rolePermissions = {
     Permission.manageSettings,
     Permission.manageUsers,
     Permission.backupRestore,
+    Permission.processReturns,
+    Permission.manageShift,
   },
   AppRole.manager: {
     Permission.viewDashboard,
@@ -110,6 +118,8 @@ const Map<AppRole, Set<Permission>> rolePermissions = {
     Permission.editSuppliers,
     Permission.viewReports,
     Permission.backupRestore,
+    Permission.processReturns,
+    Permission.manageShift,
   },
   AppRole.cashier: {
     Permission.viewDashboard,
@@ -117,6 +127,10 @@ const Map<AppRole, Set<Permission>> rolePermissions = {
     Permission.viewProducts,
     Permission.viewCustomers,
     Permission.editCustomers,
+    // A customer bringing something back is an everyday counter job, and the
+    // shift is how their own drawer gets counted.
+    Permission.processReturns,
+    Permission.manageShift,
   },
   AppRole.storeKeeper: {
     Permission.viewDashboard,
@@ -131,6 +145,7 @@ const Map<AppRole, Set<Permission>> rolePermissions = {
     Permission.viewProducts,
     Permission.viewCustomers,
     Permission.editCustomers,
+    Permission.manageShift,
   },
 };
 
@@ -152,6 +167,8 @@ const Map<String, Permission> routePermissions = {
   '/products': Permission.viewProducts,
   '/customers': Permission.viewCustomers,
   '/suppliers': Permission.viewSuppliers,
+  '/returns': Permission.processReturns,
+  '/shift': Permission.manageShift,
   '/reports': Permission.viewReports,
   '/settings': Permission.manageSettings,
   '/users': Permission.manageUsers,

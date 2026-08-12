@@ -225,6 +225,9 @@ class Sales extends Table {
   RealColumn get igstTotal => real().withDefault(const Constant(0))();
   TextColumn get placeOfSupply => text().nullable()();
   TextColumn get customerGstin => text().nullable()();
+
+  /// The till session this sale belongs to, so the drawer can be reconciled.
+  IntColumn get shiftId => integer().nullable().references(Shifts, #id)();
   DateTimeColumn get soldAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -258,6 +261,24 @@ class Returns extends Table {
   TextColumn get returnNumber => text().unique()();
   RealColumn get totalAmount => real().withDefault(const Constant(0))();
   TextColumn get reason => text().nullable()();
+
+  /// Who processed it, and who it was for, so a credit note can be traced.
+  IntColumn get userId => integer().nullable().references(Users, #id)();
+  IntColumn get customerId => integer().nullable().references(Customers, #id)();
+
+  /// How the money went back: cash, card, upi, or credit against the
+  /// customer's account.
+  TextColumn get refundMethod => text().withDefault(const Constant('cash'))();
+
+  /// Tax reversed with the goods, kept split so the GST return balances.
+  RealColumn get taxableTotal => real().withDefault(const Constant(0))();
+  RealColumn get cgstTotal => real().withDefault(const Constant(0))();
+  RealColumn get sgstTotal => real().withDefault(const Constant(0))();
+  RealColumn get igstTotal => real().withDefault(const Constant(0))();
+
+  /// An exchange is a return plus a fresh sale; this points at that sale so
+  /// the pair can be read back together.
+  IntColumn get exchangeSaleId => integer().nullable().references(Sales, #id)();
   DateTimeColumn get returnedAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -269,6 +290,63 @@ class ReturnItems extends Table {
   IntColumn get productId => integer().references(Products, #id)();
   RealColumn get quantity => real()();
   RealColumn get refundAmount => real()();
+
+  /// Copied from the original sale line so the credit note reprints correctly
+  /// even after the product's price or tax rate has changed.
+  RealColumn get unitPrice => real().withDefault(const Constant(0))();
+  RealColumn get taxRate => real().withDefault(const Constant(0))();
+  RealColumn get taxableValue => real().withDefault(const Constant(0))();
+  RealColumn get taxAmount => real().withDefault(const Constant(0))();
+  RealColumn get costPrice => real().withDefault(const Constant(0))();
+  TextColumn get hsnCode => text().nullable()();
+}
+
+/// One cashier's session at the till, from opening float to closing count.
+///
+/// This is what makes the drawer auditable: without it there is no record of
+/// who was on the counter when a shortfall appeared.
+@DataClassName('ShiftRow')
+class Shifts extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get userId => integer().references(Users, #id)();
+  DateTimeColumn get openedAt => dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get closedAt => dateTime().nullable()();
+
+  /// Cash placed in the drawer at the start.
+  RealColumn get openingFloat => real().withDefault(const Constant(0))();
+
+  /// Cash physically counted at the end.
+  RealColumn get closingCount => real().nullable()();
+
+  /// Float plus cash sales less cash refunds and payouts, as the app computes
+  /// it. Stored rather than recomputed so a closed shift never changes.
+  RealColumn get expectedCash => real().nullable()();
+  RealColumn get cashSales => real().withDefault(const Constant(0))();
+  RealColumn get cardSales => real().withDefault(const Constant(0))();
+  RealColumn get upiSales => real().withDefault(const Constant(0))();
+  RealColumn get cashRefunds => real().withDefault(const Constant(0))();
+
+  /// Money taken out of or put into the drawer mid-shift.
+  RealColumn get paidIn => real().withDefault(const Constant(0))();
+  RealColumn get paidOut => real().withDefault(const Constant(0))();
+  IntColumn get saleCount => integer().withDefault(const Constant(0))();
+  TextColumn get notes => text().nullable()();
+}
+
+/// Cash added to or removed from the drawer during a shift, other than by a
+/// sale — a supplier paid in cash, change fetched from the bank, and so on.
+@DataClassName('CashMovementRow')
+class CashMovements extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get shiftId =>
+      integer().references(Shifts, #id, onDelete: KeyAction.cascade)();
+  IntColumn get userId => integer().nullable().references(Users, #id)();
+
+  /// 'in' or 'out'.
+  TextColumn get direction => text()();
+  RealColumn get amount => real()();
+  TextColumn get reason => text()();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
 @DataClassName('ExpenseCategoryRow')
@@ -361,6 +439,8 @@ class Settings extends Table {
     SaleItems,
     Returns,
     ReturnItems,
+    Shifts,
+    CashMovements,
     Expenses,
     ExpenseCategories,
     CashBook,
@@ -378,7 +458,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.withExecutor(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -403,6 +483,26 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(saleItems, saleItems.taxRate);
         await m.addColumn(saleItems, saleItems.taxableValue);
         await m.addColumn(saleItems, saleItems.costPrice);
+      }
+      if (from < 3) {
+        // v3 adds till sessions and turns returns into full credit notes.
+        await m.createTable(shifts);
+        await m.createTable(cashMovements);
+        await m.addColumn(sales, sales.shiftId);
+        await m.addColumn(returns, returns.userId);
+        await m.addColumn(returns, returns.customerId);
+        await m.addColumn(returns, returns.refundMethod);
+        await m.addColumn(returns, returns.taxableTotal);
+        await m.addColumn(returns, returns.cgstTotal);
+        await m.addColumn(returns, returns.sgstTotal);
+        await m.addColumn(returns, returns.igstTotal);
+        await m.addColumn(returns, returns.exchangeSaleId);
+        await m.addColumn(returnItems, returnItems.unitPrice);
+        await m.addColumn(returnItems, returnItems.taxRate);
+        await m.addColumn(returnItems, returnItems.taxableValue);
+        await m.addColumn(returnItems, returnItems.taxAmount);
+        await m.addColumn(returnItems, returnItems.costPrice);
+        await m.addColumn(returnItems, returnItems.hsnCode);
       }
     },
     beforeOpen: (details) async {

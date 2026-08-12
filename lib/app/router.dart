@@ -9,6 +9,8 @@ import '../features/dashboard/presentation/dashboard_page.dart';
 import '../features/pos/presentation/pos_page.dart';
 import '../features/products/presentation/products_page.dart';
 import '../features/reports/presentation/reports_page.dart';
+import '../features/returns/presentation/returns_page.dart';
+import '../features/shifts/presentation/shift_page.dart';
 import '../features/settings/presentation/settings_page.dart';
 import '../features/setup/presentation/store_setup_page.dart';
 import '../features/suppliers/presentation/suppliers_page.dart';
@@ -59,6 +61,8 @@ GoRouter createAppRouter(RetailStore store) {
             path: '/suppliers',
             builder: (_, __) => const SuppliersPage(),
           ),
+          GoRoute(path: '/returns', builder: (_, __) => const ReturnsPage()),
+          GoRoute(path: '/shift', builder: (_, __) => const ShiftPage()),
           GoRoute(path: '/reports', builder: (_, __) => const ReportsPage()),
           GoRoute(path: '/settings', builder: (_, __) => const SettingsPage()),
           GoRoute(path: '/users', builder: (_, __) => const UsersPage()),
