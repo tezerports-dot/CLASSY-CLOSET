@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
 import '../../../app/di/injection.dart';
+import '../../../core/services/permissions.dart';
 import '../../../core/services/printer_service.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/utils/formatters.dart';
@@ -45,6 +46,12 @@ class _PosPageState extends State<PosPage> {
   /// re-ringing the sale.
   InvoiceData? _lastInvoice;
 
+  /// What the cashier typed into the bill-discount box.
+  final _billDiscount = TextEditingController();
+
+  /// The card machine's or UPI app's own reference for this payment.
+  final _paymentReference = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -64,6 +71,8 @@ class _PosPageState extends State<PosPage> {
     _cashTendered.dispose();
     _splitCash.dispose();
     _splitCard.dispose();
+    _billDiscount.dispose();
+    _paymentReference.dispose();
     super.dispose();
   }
 
@@ -376,8 +385,11 @@ class _PosPageState extends State<PosPage> {
     }
     return Column(
       children: [
+        _amountRow('Items', _store.cartGrossTotal),
+        if (_store.can(Permission.giveDiscount)) _discountRow(discount),
+        if (discount > 0 && !_store.can(Permission.giveDiscount))
+          _amountRow('Discount', discount),
         _amountRow('Taxable value', taxable),
-        if (discount > 0) _amountRow('Discount', discount),
         if (cgst > 0) _amountRow('CGST', cgst),
         if (sgst > 0) _amountRow('SGST', sgst),
         if (igst > 0) _amountRow('IGST', igst),
@@ -386,6 +398,46 @@ class _PosPageState extends State<PosPage> {
       ],
     );
   }
+
+  /// A rupee amount off the whole bill, which is how a shopkeeper actually
+  /// gives a discount — "call it 1,800" rather than "give them 10%".
+  ///
+  /// The store spreads it across the lines so the GST on the printed invoice
+  /// still adds up.
+  Widget _discountRow(double discount) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Row(
+      children: [
+        const Expanded(child: Text('Discount on the bill')),
+        SizedBox(
+          width: 130,
+          child: TextField(
+            controller: _billDiscount,
+            enabled: _store.cart.isNotEmpty,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            textAlign: TextAlign.right,
+            decoration: InputDecoration(
+              isDense: true,
+              prefixText: '${AppFormatters.symbol} ',
+              hintText: '0',
+              suffixIcon: discount > 0
+                  ? IconButton(
+                      tooltip: 'Remove the discount',
+                      icon: const Icon(Icons.clear, size: 16),
+                      onPressed: () {
+                        _billDiscount.clear();
+                        _store.clearDiscounts();
+                      },
+                    )
+                  : null,
+            ),
+            onChanged: (value) =>
+                _store.applyBillDiscount(double.tryParse(value.trim()) ?? 0),
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget _paymentPanel(double total) {
     final paid = _paidAmount;
@@ -430,6 +482,19 @@ class _PosPageState extends State<PosPage> {
           const Text('Card payment will charge the full grand total.'),
         if (_paymentMode == _PaymentMode.upi)
           const Text('UPI payment will charge the full grand total.'),
+        if (_paymentMode != _PaymentMode.cash) ...[
+          const SizedBox(height: 12),
+          TextField(
+            controller: _paymentReference,
+            decoration: const InputDecoration(
+              labelText: 'Transaction reference',
+              helperText:
+                  'The number on the card machine slip or the UPI app. '
+                  'Printed on the bill so a disputed charge can be traced.',
+              prefixIcon: Icon(Icons.tag),
+            ),
+          ),
+        ],
         if (_paymentMode == _PaymentMode.split) ...[
           TextField(
             controller: _splitCash,
@@ -634,6 +699,8 @@ class _PosPageState extends State<PosPage> {
     _cashTendered.clear();
     _splitCash.clear();
     _splitCard.clear();
+    _billDiscount.clear();
+    _paymentReference.clear();
   }
 
   Future<void> _checkout(BuildContext context) async {
@@ -655,6 +722,7 @@ class _PosPageState extends State<PosPage> {
         cashAmount: cashAmount,
         cardAmount: cardAmount,
         upiAmount: upiAmount,
+        paymentReference: _paymentReference.text,
       );
       _resetPaymentInputs();
       if (!context.mounted) return;

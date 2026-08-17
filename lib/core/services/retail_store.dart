@@ -306,6 +306,8 @@ class SaleRecord {
     this.upiAmount = 0,
     this.customerGstin,
     this.placeOfSupply,
+    this.paymentReference,
+    this.paymentTerminal,
   });
   final String receipt;
   final String customerName;
@@ -323,6 +325,11 @@ class SaleRecord {
   final double upiAmount;
   final String? customerGstin;
   final String? placeOfSupply;
+
+  /// What the card machine or UPI app called the transaction that paid this
+  /// bill, so a disputed charge can be matched back to the sale.
+  final String? paymentReference;
+  final String? paymentTerminal;
 
   double get taxTotal => cgst + sgst + igst;
   bool get isInterState => igst > 0;
@@ -1111,6 +1118,63 @@ class RetailStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Total taken off the cart, however it was applied.
+  double get cartDiscountTotal =>
+      cart.fold(0.0, (sum, line) => sum + line.discount);
+
+  /// The cart before any discount.
+  double get cartGrossTotal => cart.fold(0.0, (sum, line) => sum + line.gross);
+
+  /// Takes a flat rupee amount off a single line.
+  void setLineDiscount(CartLine line, double amount) {
+    line.discount = _money(amount.clamp(0, line.gross));
+    notifyListeners();
+  }
+
+  /// Takes a flat rupee amount off the whole bill — "the total came to 2,000,
+  /// give them 200 off".
+  ///
+  /// The amount is spread across the lines in proportion to what each is worth,
+  /// rather than simply subtracted from the total. That is not cosmetic: GST is
+  /// charged on the discounted value, so a bill-level discount that never
+  /// reaches the lines would print CGST and SGST figures that do not add up to
+  /// the total the customer is being asked to pay.
+  ///
+  /// Rounding leftovers land on the largest line, so the discount shown is
+  /// exactly the discount given, to the paisa.
+  void applyBillDiscount(double amount) {
+    if (cart.isEmpty) return;
+    final gross = cartGrossTotal;
+    final target = _money(amount.clamp(0, gross));
+    if (gross <= 0) return;
+
+    var allocated = 0.0;
+    var largest = cart.first;
+    for (final line in cart) {
+      final share = _money(target * line.gross / gross);
+      line.discount = share;
+      allocated += share;
+      if (line.gross > largest.gross) largest = line;
+    }
+    // Pro-rata shares rarely sum to the target exactly; the remainder goes on
+    // the biggest line, where a paisa is least visible.
+    final remainder = _money(target - allocated);
+    if (remainder != 0) {
+      largest.discount = _money(
+        (largest.discount + remainder).clamp(0, largest.gross),
+      );
+    }
+    notifyListeners();
+  }
+
+  /// Clears every discount on the cart.
+  void clearDiscounts() {
+    for (final line in cart) {
+      line.discount = 0;
+    }
+    notifyListeners();
+  }
+
   void removeFromCart(CartLine line) {
     cart.remove(line);
     notifyListeners();
@@ -1162,6 +1226,8 @@ class RetailStore extends ChangeNotifier {
     double cashAmount = 0,
     double cardAmount = 0,
     double upiAmount = 0,
+    String paymentReference = '',
+    String paymentTerminal = '',
   }) async {
     final snapshot = List<CartLine>.from(cart);
     if (snapshot.isEmpty) {
@@ -1222,6 +1288,14 @@ class RetailStore extends ChangeNotifier {
                     storeProfile?.effectiveStateCode,
               ),
               shiftId: Value(openShift?.id),
+              paymentReference: Value(
+                paymentReference.trim().isEmpty
+                    ? null
+                    : paymentReference.trim(),
+              ),
+              paymentTerminal: Value(
+                paymentTerminal.trim().isEmpty ? null : paymentTerminal.trim(),
+              ),
               customerGstin: Value(
                 (customer?.gstin.trim().isNotEmpty ?? false)
                     ? customer!.gstin.trim()
@@ -1301,6 +1375,12 @@ class RetailStore extends ChangeNotifier {
         customerGstin: customer?.gstin,
         placeOfSupply:
             customer?.effectiveStateCode ?? storeProfile?.effectiveStateCode,
+        paymentReference: paymentReference.trim().isEmpty
+            ? null
+            : paymentReference.trim(),
+        paymentTerminal: paymentTerminal.trim().isEmpty
+            ? null
+            : paymentTerminal.trim(),
       );
     });
     cart.clear();
@@ -3221,6 +3301,8 @@ class RetailStore extends ChangeNotifier {
             upiAmount: s.upiAmount,
             customerGstin: s.customerGstin,
             placeOfSupply: s.placeOfSupply,
+            paymentReference: s.paymentReference,
+            paymentTerminal: s.paymentTerminal,
           ),
         ),
       );

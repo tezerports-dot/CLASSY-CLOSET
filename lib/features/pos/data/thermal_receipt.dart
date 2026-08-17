@@ -129,6 +129,16 @@ Uint8List buildThermalReceipt({
       builder.columns2('  UPI', AppFormatters.amount(sale.upiAmount));
     }
   }
+  // The card machine's own reference, printed so a customer disputing a charge
+  // weeks later can be matched to this bill without digging through statements.
+  final reference = sale.paymentReference?.trim() ?? '';
+  if (reference.isNotEmpty) {
+    builder.columns2('Txn ref', reference);
+  }
+  final terminal = sale.paymentTerminal?.trim() ?? '';
+  if (terminal.isNotEmpty) {
+    builder.columns2('Terminal', terminal);
+  }
 
   builder
     ..feed()

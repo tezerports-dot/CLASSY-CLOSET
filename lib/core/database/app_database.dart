@@ -228,6 +228,15 @@ class Sales extends Table {
 
   /// The till session this sale belongs to, so the drawer can be reconciled.
   IntColumn get shiftId => integer().nullable().references(Shifts, #id)();
+
+  /// What the card machine or UPI app called this transaction — the Paytm
+  /// transaction ID, the bank RRN, the UPI reference. Printing it on the bill
+  /// and keeping it here is what lets a disputed charge weeks later be matched
+  /// back to the sale it paid for.
+  TextColumn get paymentReference => text().nullable()();
+
+  /// Which terminal or account took it, when the shop has more than one.
+  TextColumn get paymentTerminal => text().nullable()();
   DateTimeColumn get soldAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -518,7 +527,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.withExecutor(super.executor);
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -572,6 +581,11 @@ class AppDatabase extends _$AppDatabase {
         // v5 adds physical stock counts and the adjustments they produce.
         await m.createTable(stocktakes);
         await m.createTable(stocktakeItems);
+      }
+      if (from < 6) {
+        // v6 ties a bill to the card or UPI transaction that paid it.
+        await m.addColumn(sales, sales.paymentReference);
+        await m.addColumn(sales, sales.paymentTerminal);
       }
     },
     beforeOpen: (details) async {
