@@ -157,4 +157,5 @@ String _permissionLabel(Permission permission) => switch (permission) {
   Permission.manageShift => 'Open and close the till',
   Permission.recordPurchases => 'Receive stock from a supplier',
   Permission.recordExpenses => 'Record what the shop spent',
+  Permission.recordPayments => 'Settle a customer or supplier balance',
 };

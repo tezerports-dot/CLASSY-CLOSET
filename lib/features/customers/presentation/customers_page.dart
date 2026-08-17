@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../app/di/injection.dart';
 import '../../../core/services/permissions.dart';
 import '../../../core/services/retail_store.dart';
+import '../../../core/services/statements.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/section_card.dart';
+import '../../parties/presentation/widgets/party_actions.dart';
 import 'widgets/customer_form_dialog.dart';
 
 class CustomersPage extends StatelessWidget {
@@ -34,6 +36,7 @@ class CustomersPage extends StatelessWidget {
               DataColumn(label: Text('Email')),
               DataColumn(label: Text('Credit Limit')),
               DataColumn(label: Text('Outstanding')),
+              DataColumn(label: Text('')),
             ],
             rows: [
               for (final c in store.customers)
@@ -48,7 +51,25 @@ class CustomersPage extends StatelessWidget {
                     DataCell(Text(c.phone)),
                     DataCell(Text(c.email)),
                     DataCell(Text(AppFormatters.currency(c.creditLimit))),
-                    DataCell(Text(AppFormatters.currency(c.balance))),
+                    DataCell(
+                      Text(
+                        AppFormatters.currency(c.balance),
+                        style: TextStyle(
+                          color: c.balance > 0
+                              ? Theme.of(context).colorScheme.error
+                              : null,
+                        ),
+                      ),
+                    ),
+                    DataCell(
+                      PartyActions(
+                        store: store,
+                        kind: PartyKind.customer,
+                        partyId: c.id,
+                        partyName: c.name,
+                        outstanding: c.balance,
+                      ),
+                    ),
                   ],
                 ),
             ],

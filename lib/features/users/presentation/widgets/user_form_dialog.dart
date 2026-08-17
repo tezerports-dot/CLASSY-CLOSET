@@ -213,4 +213,5 @@ String _short(Permission permission) => switch (permission) {
   Permission.manageShift => 'Till session',
   Permission.recordPurchases => 'Purchases',
   Permission.recordExpenses => 'Expenses',
+  Permission.recordPayments => 'Payments',
 };

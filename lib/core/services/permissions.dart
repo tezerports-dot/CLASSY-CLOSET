@@ -52,6 +52,12 @@ enum Permission {
 
   /// Record what the shop spent.
   recordExpenses,
+
+  /// Settle money against a customer's or a supplier's balance.
+  ///
+  /// Separate from [editCustomers] on purpose: a cashier can correct a phone
+  /// number, but writing off what someone owes is the owner's decision.
+  recordPayments,
 }
 
 /// The roles a user can hold. The name stored in the database is matched
@@ -112,6 +118,7 @@ const Map<AppRole, Set<Permission>> rolePermissions = {
     Permission.manageShift,
     Permission.recordPurchases,
     Permission.recordExpenses,
+    Permission.recordPayments,
   },
   AppRole.manager: {
     Permission.viewDashboard,
@@ -130,6 +137,7 @@ const Map<AppRole, Set<Permission>> rolePermissions = {
     Permission.manageShift,
     Permission.recordPurchases,
     Permission.recordExpenses,
+    Permission.recordPayments,
   },
   AppRole.cashier: {
     Permission.viewDashboard,

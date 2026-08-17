@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../app/di/injection.dart';
 import '../../../core/services/permissions.dart';
 import '../../../core/services/retail_store.dart';
+import '../../../core/services/statements.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/section_card.dart';
+import '../../parties/presentation/widgets/party_actions.dart';
 import 'widgets/supplier_form_dialog.dart';
 
 class SuppliersPage extends StatelessWidget {
@@ -32,7 +34,8 @@ class SuppliersPage extends StatelessWidget {
               DataColumn(label: Text('Name')),
               DataColumn(label: Text('Phone')),
               DataColumn(label: Text('Email')),
-              DataColumn(label: Text('Balance')),
+              DataColumn(label: Text('Owed to them')),
+              DataColumn(label: Text('')),
             ],
             rows: [
               for (final s in store.suppliers)
@@ -46,7 +49,25 @@ class SuppliersPage extends StatelessWidget {
                     ),
                     DataCell(Text(s.phone)),
                     DataCell(Text(s.email)),
-                    DataCell(Text(AppFormatters.currency(s.balance))),
+                    DataCell(
+                      Text(
+                        AppFormatters.currency(s.balance),
+                        style: TextStyle(
+                          color: s.balance > 0
+                              ? Theme.of(context).colorScheme.error
+                              : null,
+                        ),
+                      ),
+                    ),
+                    DataCell(
+                      PartyActions(
+                        store: store,
+                        kind: PartyKind.supplier,
+                        partyId: s.id,
+                        partyName: s.name,
+                        outstanding: s.balance,
+                      ),
+                    ),
                   ],
                 ),
             ],

@@ -408,6 +408,27 @@ class AuditLogs extends Table {
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+/// Money settled with a customer or a supplier outside a sale or a delivery.
+///
+/// A credit sale grows a customer's balance and an unpaid delivery grows what
+/// the shop owes; without this table neither could ever be brought back down.
+@DataClassName('PartyPaymentRow')
+class PartyPayments extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  /// 'customer' for money taken in, 'supplier' for money paid out.
+  TextColumn get partyType => text().withLength(min: 1, max: 16)();
+  IntColumn get partyId => integer()();
+
+  /// Voucher number, unique across both kinds so it can be quoted on paper.
+  TextColumn get reference => text().unique()();
+  RealColumn get amount => real()();
+  TextColumn get method => text().withDefault(const Constant('cash'))();
+  TextColumn get notes => text().nullable()();
+  IntColumn get userId => integer().nullable().references(Users, #id)();
+  DateTimeColumn get paidAt => dateTime().withDefault(currentDateAndTime)();
+}
+
 @DataClassName('SettingRow')
 class Settings extends Table {
   TextColumn get key => text()();
@@ -441,6 +462,7 @@ class Settings extends Table {
     ReturnItems,
     Shifts,
     CashMovements,
+    PartyPayments,
     Expenses,
     ExpenseCategories,
     CashBook,
@@ -458,7 +480,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.withExecutor(super.executor);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -503,6 +525,10 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(returnItems, returnItems.taxAmount);
         await m.addColumn(returnItems, returnItems.costPrice);
         await m.addColumn(returnItems, returnItems.hsnCode);
+      }
+      if (from < 4) {
+        // v4 lets money be settled against a customer or supplier balance.
+        await m.createTable(partyPayments);
       }
     },
     beforeOpen: (details) async {

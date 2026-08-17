@@ -14,6 +14,7 @@ import 'permissions.dart';
 import 'printer_service.dart';
 import 'reports.dart';
 import 'returns_and_shifts.dart';
+import 'statements.dart';
 
 class AppUser {
   const AppUser({
@@ -489,8 +490,10 @@ class RetailStore extends ChangeNotifier {
       _loadPurchases(),
       _loadExpenses(),
     ]);
-    // Shifts read the user list, so they load after it rather than alongside.
+    // Shifts read the user list and payments read the party lists, so both
+    // load after those rather than alongside them.
     await _loadShifts();
+    await _loadPartyPayments();
     _rebuildStyles();
     notifyListeners();
   }
@@ -1592,6 +1595,286 @@ class RetailStore extends ChangeNotifier {
   double expensesBetween(DateTime from, DateTime to) => expenses
       .where((e) => !e.spentAt.isBefore(from) && e.spentAt.isBefore(to))
       .fold(0.0, (sum, e) => sum + e.amount);
+
+  // ------------------------------------------------- payments & statements
+
+  final partyPayments = <PartyPaymentRecord>[];
+
+  /// Records money settled against a party's balance and moves that balance.
+  ///
+  /// A credit sale grows what a customer owes and an unpaid delivery grows what
+  /// the shop owes its supplier; this is the only thing that brings either back
+  /// down. Cash settled while a till session is open also posts a cash movement
+  /// so the drawer still reconciles at close — otherwise the money would be in
+  /// the till at close with nothing explaining it.
+  Future<PartyPaymentRecord> recordPartyPayment({
+    required PartyKind kind,
+    required int partyId,
+    required double amount,
+    PaymentMethod method = PaymentMethod.cash,
+    String notes = '',
+    DateTime? paidAt,
+  }) async {
+    final rounded = _money(amount);
+    if (rounded <= 0) {
+      throw StateError('Enter an amount greater than zero.');
+    }
+
+    final name = kind == PartyKind.customer
+        ? customers.where((c) => c.id == partyId).firstOrNull?.name
+        : suppliers.where((s) => s.id == partyId).firstOrNull?.name;
+    if (name == null) {
+      throw StateError('That ${kind.name} could not be found.');
+    }
+
+    final when = paidAt ?? DateTime.now();
+    late PartyPaymentRecord record;
+    await _db.transaction(() async {
+      final reference = await _nextPaymentReference(kind, when);
+      final id = await _db
+          .into(_db.partyPayments)
+          .insert(
+            PartyPaymentsCompanion.insert(
+              partyType: kind.name,
+              partyId: partyId,
+              reference: reference,
+              amount: rounded,
+              method: Value(method.name),
+              notes: Value(notes.trim().isEmpty ? null : notes.trim()),
+              userId: Value(currentUser?.id),
+              paidAt: Value(when),
+            ),
+          );
+
+      if (kind == PartyKind.customer) {
+        final customer = customers.firstWhere((c) => c.id == partyId);
+        await (_db.update(
+          _db.customers,
+        )..where((c) => c.id.equals(partyId))).write(
+          CustomersCompanion(
+            currentBalance: Value(_money(customer.balance - rounded)),
+          ),
+        );
+      } else {
+        final supplier = suppliers.firstWhere((s) => s.id == partyId);
+        await (_db.update(
+          _db.suppliers,
+        )..where((s) => s.id.equals(partyId))).write(
+          SuppliersCompanion(
+            currentBalance: Value(_money(supplier.balance - rounded)),
+          ),
+        );
+      }
+
+      await _audit(
+        'CREATE',
+        'party_payments',
+        id,
+        '${kind == PartyKind.customer ? 'Received from' : 'Paid'} $name: '
+            '${AppFormatters.currency(rounded)} ($reference)',
+      );
+
+      record = PartyPaymentRecord(
+        id: id,
+        kind: kind,
+        partyId: partyId,
+        partyName: name,
+        reference: reference,
+        amount: rounded,
+        method: method,
+        paidAt: when,
+        notes: notes.trim(),
+        userName: currentUser?.name ?? '',
+      );
+    });
+
+    // Cash across the counter belongs to the open drawer, in either direction.
+    if (method == PaymentMethod.cash && openShift != null) {
+      await recordCashMovement(
+        amount: rounded,
+        isIn: kind == PartyKind.customer,
+        reason: kind == PartyKind.customer
+            ? 'Received from $name (${record.reference})'
+            : 'Paid to $name (${record.reference})',
+      );
+    }
+
+    await refresh();
+    return record;
+  }
+
+  /// Voucher numbers run RCP/… for money in and PMT/… for money out, sequential
+  /// within the financial year so a shop can quote one over the phone.
+  Future<String> _nextPaymentReference(PartyKind kind, DateTime at) async {
+    final startYear = at.month >= 4 ? at.year : at.year - 1;
+    final label = '${startYear % 100}${(startYear + 1) % 100}'.padLeft(4, '0');
+    final prefix = kind == PartyKind.customer ? 'RCP' : 'PMT';
+
+    final existing = await (_db.select(
+      _db.partyPayments,
+    )..where((p) => p.reference.like('$prefix/$label/%'))).get();
+    var highest = 0;
+    for (final row in existing) {
+      final tail = int.tryParse(row.reference.split('/').last) ?? 0;
+      if (tail > highest) highest = tail;
+    }
+    return '$prefix/$label/${(highest + 1).toString().padLeft(4, '0')}';
+  }
+
+  Future<void> _loadPartyPayments() async {
+    final rows = await (_db.select(
+      _db.partyPayments,
+    )..orderBy([(p) => OrderingTerm.desc(p.paidAt)])).get();
+    final names = {
+      for (final u in await _db.select(_db.users).get()) u.id: u.fullName,
+    };
+
+    partyPayments
+      ..clear()
+      ..addAll(
+        rows.map((r) {
+          final kind = r.partyType == PartyKind.supplier.name
+              ? PartyKind.supplier
+              : PartyKind.customer;
+          final party = kind == PartyKind.customer
+              ? customers.where((c) => c.id == r.partyId).firstOrNull?.name
+              : suppliers.where((s) => s.id == r.partyId).firstOrNull?.name;
+          return PartyPaymentRecord(
+            id: r.id,
+            kind: kind,
+            partyId: r.partyId,
+            partyName: party ?? 'Unknown',
+            reference: r.reference,
+            amount: r.amount,
+            method: PaymentMethod.fromName(r.method),
+            paidAt: r.paidAt,
+            notes: r.notes ?? '',
+            userName: names[r.userId] ?? '',
+          );
+        }),
+      );
+  }
+
+  /// Builds a statement of account for one party over [range].
+  ///
+  /// The opening balance is worked backwards from where the party stands today,
+  /// undoing every movement from the end of the window onwards. Doing it that
+  /// way means the closing figure always agrees with the balance shown on the
+  /// customers screen, which is the number anyone will check it against.
+  Future<StatementBundle> buildStatement({
+    required PartyKind kind,
+    required int partyId,
+    required DateRange range,
+  }) async {
+    final movements = <StatementMovement>[];
+    var balanceNow = 0.0;
+    var name = 'Unknown', phone = '', address = '', gstin = '';
+
+    if (kind == PartyKind.customer) {
+      final customer = customers.where((c) => c.id == partyId).firstOrNull;
+      if (customer == null) {
+        throw StateError('That customer could not be found.');
+      }
+      name = customer.name;
+      phone = customer.phone;
+      address = customer.address;
+      gstin = customer.gstin;
+      balanceNow = customer.balance;
+
+      final sales = await (_db.select(
+        _db.sales,
+      )..where((s) => s.customerId.equals(partyId))).get();
+      for (final sale in sales) {
+        final unpaid = _money(sale.grandTotal - sale.paidAmount);
+        if (unpaid <= 0) continue;
+        movements.add(
+          StatementMovement(
+            date: sale.soldAt,
+            reference: sale.receiptNumber,
+            description: 'Sale on credit',
+            debit: unpaid,
+          ),
+        );
+      }
+
+      final credits = await (_db.select(
+        _db.returns,
+      )..where((r) => r.customerId.equals(partyId))).get();
+      for (final credit in credits) {
+        if (credit.refundMethod != 'credit') continue;
+        movements.add(
+          StatementMovement(
+            date: credit.returnedAt,
+            reference: credit.returnNumber,
+            description: 'Credit note',
+            credit: credit.totalAmount,
+          ),
+        );
+      }
+    } else {
+      final supplier = suppliers.where((s) => s.id == partyId).firstOrNull;
+      if (supplier == null) {
+        throw StateError('That supplier could not be found.');
+      }
+      name = supplier.name;
+      phone = supplier.phone;
+      address = supplier.address;
+      balanceNow = supplier.balance;
+
+      final deliveries = await (_db.select(
+        _db.purchases,
+      )..where((p) => p.supplierId.equals(partyId))).get();
+      for (final delivery in deliveries) {
+        final unpaid = _money(delivery.grandTotal - delivery.paidAmount);
+        if (unpaid <= 0) continue;
+        movements.add(
+          StatementMovement(
+            date: delivery.purchasedAt,
+            reference: delivery.invoiceNumber,
+            description: 'Delivery received',
+            debit: unpaid,
+          ),
+        );
+      }
+    }
+
+    for (final payment in partyPayments) {
+      if (payment.kind != kind || payment.partyId != partyId) continue;
+      movements.add(
+        StatementMovement(
+          date: payment.paidAt,
+          reference: payment.reference,
+          description: kind == PartyKind.customer
+              ? 'Payment received (${payment.method.label})'
+              : 'Payment made (${payment.method.label})',
+          credit: payment.amount,
+        ),
+      );
+    }
+
+    // Everything after the window has to be undone to find where the balance
+    // stood when it closed, and everything inside it to find the opening.
+    final after = movements.where((m) => !m.date.isBefore(range.to));
+    final inside = movements.where(
+      (m) => !m.date.isBefore(range.from) && m.date.isBefore(range.to),
+    );
+    final closing =
+        balanceNow - after.fold(0.0, (sum, m) => sum + m.debit - m.credit);
+    final opening =
+        closing - inside.fold(0.0, (sum, m) => sum + m.debit - m.credit);
+
+    return StatementBundle(
+      kind: kind,
+      partyId: partyId,
+      partyName: name,
+      range: range,
+      openingBalance: _money(opening),
+      lines: runningBalance(_money(opening), inside.toList()),
+      phone: phone,
+      address: address,
+      gstin: gstin,
+    );
+  }
 
   // ------------------------------------------------------------- reports
 
