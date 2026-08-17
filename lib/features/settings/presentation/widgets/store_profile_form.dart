@@ -31,32 +31,42 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
   late final TextEditingController _receiptFooterText;
   late final TextEditingController _receiptNumberPrefix;
   late final TextEditingController _gstin;
+  late final TextEditingController _tagline;
+  late final TextEditingController _termsText;
+  late final TextEditingController _declarationText;
+  late final TextEditingController _bankDetails;
+  late final TextEditingController _jurisdiction;
   String? _logoPath;
   String? _stateCode;
 
   @override
   void initState() {
     super.initState();
-    final profile = widget.store.storeProfile;
-    _storeName = TextEditingController(text: profile?.storeName ?? '');
-    _address = TextEditingController(text: profile?.address ?? '');
-    _phone = TextEditingController(text: profile?.phone ?? '');
-    _email = TextEditingController(text: profile?.email ?? '');
+    // A shop that has not been set up yet starts from the packaged defaults;
+    // one that has starts from whatever it saved.
+    final profile = widget.store.storeProfile ?? StoreProfile.firstRunDefaults;
+    _storeName = TextEditingController(text: profile.storeName);
+    _address = TextEditingController(text: profile.address ?? '');
+    _phone = TextEditingController(text: profile.phone ?? '');
+    _email = TextEditingController(text: profile.email ?? '');
     _taxRegistrationNumber = TextEditingController(
-      text: profile?.taxRegistrationNumber ?? '',
+      text: profile.taxRegistrationNumber ?? '',
     );
-    _currencySymbol = TextEditingController(
-      text: profile?.currencySymbol ?? '₹',
-    );
-    _gstin = TextEditingController(text: profile?.gstin ?? '');
-    _stateCode = profile?.effectiveStateCode;
+    _currencySymbol = TextEditingController(text: profile.currencySymbol);
+    _gstin = TextEditingController(text: profile.gstin ?? '');
+    _stateCode = profile.effectiveStateCode;
     _receiptFooterText = TextEditingController(
-      text: profile?.receiptFooterText ?? 'Thank you for shopping with us.',
+      text: profile.receiptFooterText ?? '',
     );
     _receiptNumberPrefix = TextEditingController(
-      text: profile?.receiptNumberPrefix ?? '',
+      text: profile.receiptNumberPrefix,
     );
-    _logoPath = profile?.logoPath;
+    _tagline = TextEditingController(text: profile.tagline);
+    _termsText = TextEditingController(text: profile.termsText);
+    _declarationText = TextEditingController(text: profile.declarationText);
+    _bankDetails = TextEditingController(text: profile.bankDetails);
+    _jurisdiction = TextEditingController(text: profile.jurisdiction);
+    _logoPath = profile.logoPath;
   }
 
   @override
@@ -71,6 +81,11 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
       _receiptFooterText,
       _receiptNumberPrefix,
       _gstin,
+      _tagline,
+      _termsText,
+      _declarationText,
+      _bankDetails,
+      _jurisdiction,
     ]) {
       controller.dispose();
     }
@@ -198,7 +213,31 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
           ),
           const Divider(height: 28),
           _field(_receiptNumberPrefix, 'Invoice number prefix (e.g. CC)'),
-          _field(_receiptFooterText, 'Receipt footer text', maxLines: 2),
+          _field(
+            _tagline,
+            'Tagline under the shop name on the bill',
+            maxLines: 2,
+          ),
+          _field(_receiptFooterText, 'Thank-you line', maxLines: 2),
+          _field(
+            _termsText,
+            'Exchange policy printed on every bill',
+            maxLines: 3,
+          ),
+          _field(
+            _jurisdiction,
+            'Jurisdiction line (e.g. Subject to Jaipur jurisdiction)',
+          ),
+          _field(
+            _declarationText,
+            'Declaration on the full-sheet tax invoice',
+            maxLines: 3,
+          ),
+          _field(
+            _bankDetails,
+            'Bank details for business buyers (optional)',
+            maxLines: 3,
+          ),
           OutlinedButton.icon(
             onPressed: _pickLogo,
             icon: const Icon(Icons.image),
@@ -258,6 +297,11 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
         currencySymbol: _currencySymbol.text.trim(),
         receiptFooterText: _receiptFooterText.text.trim(),
         receiptNumberPrefix: _receiptNumberPrefix.text.trim(),
+        tagline: _tagline.text.trim(),
+        termsText: _termsText.text.trim(),
+        declarationText: _declarationText.text.trim(),
+        bankDetails: _bankDetails.text.trim(),
+        jurisdiction: _jurisdiction.text.trim(),
         gstin: _gstin.text.trim().toUpperCase(),
         stateCode: _stateCode,
       ),

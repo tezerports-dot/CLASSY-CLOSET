@@ -196,6 +196,54 @@ void main() {
 
       expect(text, contains('Exchange within 7 days with the bill'));
     });
+
+    test('the shop wording is the shop\'s own, not fixed in the code', () async {
+      // The same build runs in more than one shop, so every word below has to
+      // come from the profile rather than from a string literal in the printer.
+      await store.saveStoreProfile(
+        const StoreProfile(
+          storeName: 'CLASSY CLOSET',
+          currencySymbol: '₹',
+          address: 'Shop no. 101, 1st Floor, Mansarovar Plaza, Jaipur',
+          gstin: '08KGDPK6891Q1Z8',
+          stateCode: '08',
+          tagline: "Men's Fashion Store — Look Classy, Feel Content",
+          termsText: 'Exchange within 7 days with the bill.',
+          jurisdiction: 'Subject to Jaipur jurisdiction',
+          receiptFooterText: 'Thank you for shopping with us.',
+        ),
+      );
+      final invoice = await sellOne();
+      final text = paperText(
+        buildThermalReceipt(data: invoice, settings: const PrinterSettings()),
+      );
+
+      expect(text, contains('CLASSY CLOSET'));
+      // The em dash cannot print on a thermal head, so it is flattened.
+      expect(text, contains("Men's Fashion Store - Look Classy, Feel"));
+      // The address is longer than the roll is wide, so it wraps — which is the
+      // point of wrapping rather than truncating.
+      expect(text, contains('Shop no. 101, 1st Floor, Mansarovar Plaza,'));
+      expect(text, contains('Jaipur'));
+      expect(text, contains('GSTIN: 08KGDPK6891Q1Z8'));
+      expect(text, contains('Exchange within 7 days with the bill.'));
+      expect(text, contains('Subject to Jaipur jurisdiction'));
+      expect(text, contains('Thank you for shopping with us.'));
+    });
+
+    test('a shop that leaves the wording blank gets no empty lines', () async {
+      await store.saveStoreProfile(
+        const StoreProfile(storeName: 'Plain Shop', currencySymbol: '₹'),
+      );
+      final invoice = await sellOne();
+      final text = paperText(
+        buildThermalReceipt(data: invoice, settings: const PrinterSettings()),
+      );
+
+      expect(text, contains('Plain Shop'));
+      expect(text, isNot(contains('jurisdiction')));
+      expect(text, isNot(contains('Exchange')));
+    });
   });
 
   group('hardware behaviour', () {

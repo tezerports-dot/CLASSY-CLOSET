@@ -30,6 +30,8 @@ Uint8List buildThermalReceipt({
     center: true,
     doubleHeight: true,
   );
+  final tagline = profile?.tagline.trim() ?? '';
+  if (tagline.isNotEmpty) builder.line(tagline, center: true);
   final address = profile?.address?.trim() ?? '';
   if (address.isNotEmpty) builder.line(address, center: true);
   final phone = profile?.phone?.trim() ?? '';
@@ -177,10 +179,16 @@ Uint8List buildThermalReceipt({
       ..barcode128(sale.receipt);
   }
 
-  builder
-    ..feed()
-    ..line('Goods once sold are covered by our exchange policy.', center: true)
-    ..line('Thank you, please visit again', center: true);
+  // The exchange policy is the line a customer argues with a week later, so it
+  // is the shop's own wording rather than something fixed in the code.
+  final terms = profile?.termsText.trim() ?? '';
+  if (terms.isNotEmpty) {
+    builder
+      ..feed()
+      ..line(terms, center: true);
+  }
+  final jurisdiction = profile?.jurisdiction.trim() ?? '';
+  if (jurisdiction.isNotEmpty) builder.line(jurisdiction, center: true);
 
   if (settings.openDrawerOnCashSale && sale.cashAmount > 0) {
     builder.openDrawer(pin: settings.drawerPin);

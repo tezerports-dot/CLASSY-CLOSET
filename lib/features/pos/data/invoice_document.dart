@@ -144,6 +144,14 @@ List<pw.Widget> _rollBody(
         textAlign: pw.TextAlign.center,
       ),
     ),
+    if ((profile?.tagline ?? '').isNotEmpty)
+      pw.Center(
+        child: pw.Text(
+          profile!.tagline,
+          style: pw.TextStyle(fontSize: base - 1),
+          textAlign: pw.TextAlign.center,
+        ),
+      ),
     if ((profile?.address ?? '').isNotEmpty)
       pw.Center(
         child: pw.Text(
@@ -348,6 +356,15 @@ List<pw.Widget> _sheetBody(InvoiceData data, pw.MemoryImage? logo) {
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
+              if ((profile?.tagline ?? '').isNotEmpty)
+                pw.Text(
+                  profile!.tagline,
+                  style: pw.TextStyle(
+                    fontSize: 9,
+                    fontStyle: pw.FontStyle.italic,
+                    color: PdfColors.grey700,
+                  ),
+                ),
               if ((profile?.address ?? '').isNotEmpty)
                 pw.Text(
                   profile!.address!,
@@ -497,6 +514,40 @@ List<pw.Widget> _sheetBody(InvoiceData data, pw.MemoryImage? logo) {
         ),
       ],
     ),
+    if ((profile?.bankDetails ?? '').isNotEmpty) ...[
+      pw.SizedBox(height: 14),
+      pw.Text(
+        'Bank details',
+        style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+      ),
+      pw.Text(profile!.bankDetails, style: const pw.TextStyle(fontSize: 8.5)),
+    ],
+    if ((profile?.termsText ?? '').isNotEmpty) ...[
+      pw.SizedBox(height: 14),
+      pw.Text(
+        'Terms',
+        style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+      ),
+      pw.Text(profile!.termsText, style: const pw.TextStyle(fontSize: 8.5)),
+    ],
+    if ((profile?.declarationText ?? '').isNotEmpty) ...[
+      pw.SizedBox(height: 10),
+      pw.Text(
+        'Declaration',
+        style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+      ),
+      pw.Text(
+        profile!.declarationText,
+        style: const pw.TextStyle(fontSize: 8.5),
+      ),
+    ],
+    if ((profile?.jurisdiction ?? '').isNotEmpty) ...[
+      pw.SizedBox(height: 8),
+      pw.Text(
+        profile!.jurisdiction,
+        style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+      ),
+    ],
     pw.SizedBox(height: 26),
     pw.Row(
       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,

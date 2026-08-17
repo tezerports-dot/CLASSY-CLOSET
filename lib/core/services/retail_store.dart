@@ -49,7 +49,37 @@ class StoreProfile {
     this.gstin,
     this.stateCode,
     this.currencyLocale = 'en_IN',
+    this.tagline = '',
+    this.termsText = '',
+    this.declarationText = '',
+    this.bankDetails = '',
+    this.jurisdiction = '',
   });
+
+  /// What a fresh installation starts from.
+  ///
+  /// The same build runs in more than one shop, so nothing here is baked into
+  /// the code that prints the bill — these are only the values the setup screen
+  /// opens with, and every one of them is editable under Settings. A second
+  /// shop types over them; changing what a new installation starts from is a
+  /// matter of editing this one constant.
+  static const firstRunDefaults = StoreProfile(
+    storeName: 'CLASSY CLOSET',
+    currencySymbol: '₹',
+    address: 'Shop no. 101, 1st Floor, Mansarovar Plaza, Jaipur',
+    gstin: '08KGDPK6891Q1Z8',
+    stateCode: '08',
+    receiptNumberPrefix: 'CC',
+    tagline: "Men's Fashion Store — Look Classy, Feel Content",
+    receiptFooterText: 'Thank you for shopping with us.',
+    termsText:
+        'Exchange within 7 days with the bill. '
+        'No exchange on altered or washed garments.',
+    declarationText:
+        'We declare that this invoice shows the actual price of the goods '
+        'described and that all particulars are true and correct.',
+    jurisdiction: 'Subject to Jaipur jurisdiction',
+  );
 
   final String storeName;
   final String currencySymbol;
@@ -69,6 +99,23 @@ class StoreProfile {
   /// between CGST+SGST and IGST.
   final String? stateCode;
   final String currencyLocale;
+
+  /// The line under the shop name on the bill — what the shop sells and why
+  /// someone should come back.
+  final String tagline;
+
+  /// The exchange policy, printed at the foot of every bill. This is the line a
+  /// customer argues with a week later, so the shop must be able to word it.
+  final String termsText;
+
+  /// The declaration a tax invoice carries on a full sheet.
+  final String declarationText;
+
+  /// Account details for a business buyer paying by transfer.
+  final String bankDetails;
+
+  /// "Subject to <city> jurisdiction".
+  final String jurisdiction;
 
   /// Falls back to the state code embedded in the GSTIN when none was entered.
   String? get effectiveStateCode =>
@@ -91,6 +138,11 @@ class StoreProfile {
     'gstin': gstin,
     'stateCode': stateCode,
     'currencyLocale': currencyLocale,
+    'tagline': tagline,
+    'termsText': termsText,
+    'declarationText': declarationText,
+    'bankDetails': bankDetails,
+    'jurisdiction': jurisdiction,
   };
 
   factory StoreProfile.fromJson(Map<String, dynamic> json) => StoreProfile(
@@ -106,6 +158,11 @@ class StoreProfile {
     gstin: (json['gstin'] as String?)?.trim(),
     stateCode: (json['stateCode'] as String?)?.trim(),
     currencyLocale: (json['currencyLocale'] as String? ?? 'en_IN').trim(),
+    tagline: (json['tagline'] as String? ?? '').trim(),
+    termsText: (json['termsText'] as String? ?? '').trim(),
+    declarationText: (json['declarationText'] as String? ?? '').trim(),
+    bankDetails: (json['bankDetails'] as String? ?? '').trim(),
+    jurisdiction: (json['jurisdiction'] as String? ?? '').trim(),
   );
 }
 
