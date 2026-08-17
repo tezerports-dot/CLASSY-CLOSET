@@ -146,6 +146,12 @@ const _navItems = <_NavEntry>[
     '/purchases',
     Permission.recordPurchases,
   ),
+  _NavEntry(
+    Icons.playlist_add_check,
+    'Stock count',
+    '/stocktake',
+    Permission.adjustStock,
+  ),
   _NavEntry(Icons.receipt, 'Expenses', '/expenses', Permission.recordExpenses),
   _NavEntry(
     Icons.assignment_return,

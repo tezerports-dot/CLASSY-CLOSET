@@ -15,6 +15,7 @@ import 'printer_service.dart';
 import 'reports.dart';
 import 'returns_and_shifts.dart';
 import 'statements.dart';
+import 'stocktake.dart';
 
 class AppUser {
   const AppUser({
@@ -490,10 +491,11 @@ class RetailStore extends ChangeNotifier {
       _loadPurchases(),
       _loadExpenses(),
     ]);
-    // Shifts read the user list and payments read the party lists, so both
-    // load after those rather than alongside them.
+    // Shifts read the user list, payments read the party lists and stock counts
+    // read the catalogue, so all three load after those rather than alongside.
     await _loadShifts();
     await _loadPartyPayments();
+    await _loadStocktakes();
     _rebuildStyles();
     notifyListeners();
   }
@@ -1595,6 +1597,285 @@ class RetailStore extends ChangeNotifier {
   double expensesBetween(DateTime from, DateTime to) => expenses
       .where((e) => !e.spentAt.isBefore(from) && e.spentAt.isBefore(to))
       .fold(0.0, (sum, e) => sum + e.amount);
+
+  // ---------------------------------------------------------- stock counts
+
+  final stocktakes = <StocktakeRecord>[];
+
+  /// The session being counted right now, if there is one.
+  StocktakeRecord? get openStocktake =>
+      stocktakes.where((s) => s.isOpen).firstOrNull;
+
+  /// Opens a count session. Only one can be open at a time — two people
+  /// counting the same rail into two sessions would each write the other off.
+  Future<StocktakeRecord> startStocktake() async {
+    if (openStocktake != null) {
+      throw StateError(
+        'A count is already open (${openStocktake!.reference}). Finish or '
+        'abandon it before starting another.',
+      );
+    }
+    final startedAt = DateTime.now();
+    final reference = await _nextStocktakeReference(startedAt);
+    final id = await _db
+        .into(_db.stocktakes)
+        .insert(
+          StocktakesCompanion.insert(
+            reference: reference,
+            userId: Value(currentUser?.id),
+            startedAt: Value(startedAt),
+          ),
+        );
+    await _audit('CREATE', 'stocktakes', id, 'Started stock count $reference');
+    await refresh();
+    return stocktakes.firstWhere((s) => s.id == id);
+  }
+
+  /// Records what was actually on the rail for one product.
+  ///
+  /// The system figure is captured now rather than at commit time, so a sale
+  /// rung up ten minutes after this shelf was counted is not misread as
+  /// shrinkage. Counting the same product twice replaces the earlier line.
+  Future<void> recordCount({
+    required int stocktakeId,
+    required int productId,
+    required double counted,
+  }) async {
+    final session = stocktakes.where((s) => s.id == stocktakeId).firstOrNull;
+    if (session == null || !session.isOpen) {
+      throw StateError('That stock count is not open.');
+    }
+    if (counted < 0) {
+      throw StateError('A counted quantity cannot be negative.');
+    }
+    final product = products.where((p) => p.id == productId).firstOrNull;
+    if (product == null) {
+      throw StateError('That product could not be found.');
+    }
+
+    await (_db.delete(_db.stocktakeItems)..where(
+          (i) =>
+              i.stocktakeId.equals(stocktakeId) & i.productId.equals(productId),
+        ))
+        .go();
+    await _db
+        .into(_db.stocktakeItems)
+        .insert(
+          StocktakeItemsCompanion.insert(
+            stocktakeId: stocktakeId,
+            productId: productId,
+            systemQuantity: product.stock,
+            countedQuantity: counted,
+            costPrice: Value(product.purchasePrice),
+          ),
+        );
+    await refresh();
+  }
+
+  /// Removes a counted line, for a shelf counted by mistake.
+  Future<void> removeCount({
+    required int stocktakeId,
+    required int productId,
+  }) async {
+    await (_db.delete(_db.stocktakeItems)..where(
+          (i) =>
+              i.stocktakeId.equals(stocktakeId) & i.productId.equals(productId),
+        ))
+        .go();
+    await refresh();
+  }
+
+  /// Applies the count to stock and closes the session.
+  ///
+  /// Every adjusted line leaves an inventory movement behind, so the reason a
+  /// figure moved is still answerable months later. Lines that matched are left
+  /// alone — writing the same number back would bury the real changes in noise.
+  Future<StocktakeRecord> commitStocktake(
+    int stocktakeId, {
+    String notes = '',
+  }) async {
+    final session = stocktakes.where((s) => s.id == stocktakeId).firstOrNull;
+    if (session == null || !session.isOpen) {
+      throw StateError('That stock count is not open.');
+    }
+    if (session.lines.isEmpty) {
+      throw StateError('Nothing has been counted yet.');
+    }
+
+    final committedAt = DateTime.now();
+    await _db.transaction(() async {
+      for (final line in session.lines) {
+        if (line.matches) continue;
+        await (_db.update(
+          _db.products,
+        )..where((p) => p.id.equals(line.productId))).write(
+          ProductsCompanion(currentStock: Value(line.countedQuantity)),
+        );
+        await _db
+            .into(_db.inventoryMovements)
+            .insert(
+              InventoryMovementsCompanion.insert(
+                productId: line.productId,
+                movementType: 'stocktake',
+                quantity: line.variance,
+                referenceType: const Value('stocktakes'),
+                referenceId: Value(stocktakeId),
+                createdAt: Value(committedAt),
+              ),
+            );
+      }
+      await (_db.update(
+        _db.stocktakes,
+      )..where((s) => s.id.equals(stocktakeId))).write(
+        StocktakesCompanion(
+          status: Value(StocktakeStatus.committed.name),
+          committedAt: Value(committedAt),
+          notes: Value(notes.trim().isEmpty ? null : notes.trim()),
+        ),
+      );
+      await _audit(
+        'UPDATE',
+        'stocktakes',
+        stocktakeId,
+        'Applied stock count ${session.reference}: '
+            '${session.discrepancies.length} of ${session.countedLines} lines '
+            'adjusted, net ${AppFormatters.currency(session.netValue)}',
+      );
+    });
+
+    await refresh();
+    return stocktakes.firstWhere((s) => s.id == stocktakeId);
+  }
+
+  /// Walks away from a count without touching stock.
+  Future<void> abandonStocktake(int stocktakeId, {String reason = ''}) async {
+    final session = stocktakes.where((s) => s.id == stocktakeId).firstOrNull;
+    if (session == null || !session.isOpen) {
+      throw StateError('That stock count is not open.');
+    }
+    await (_db.update(
+      _db.stocktakes,
+    )..where((s) => s.id.equals(stocktakeId))).write(
+      StocktakesCompanion(
+        status: Value(StocktakeStatus.abandoned.name),
+        committedAt: Value(DateTime.now()),
+        notes: Value(reason.trim().isEmpty ? null : reason.trim()),
+      ),
+    );
+    await _audit(
+      'UPDATE',
+      'stocktakes',
+      stocktakeId,
+      'Abandoned stock count ${session.reference}',
+    );
+    await refresh();
+  }
+
+  /// A one-off correction outside a count — damage, a sample taken, a
+  /// miscount spotted on the spot.
+  ///
+  /// [delta] is the change, not the new level: -2 for two shirts written off.
+  Future<void> adjustStock({
+    required int productId,
+    required double delta,
+    required String reason,
+  }) async {
+    if (delta == 0) {
+      throw StateError('Enter how many to add or take off.');
+    }
+    if (reason.trim().isEmpty) {
+      throw StateError('Say why the stock is being adjusted.');
+    }
+    final product = products.where((p) => p.id == productId).firstOrNull;
+    if (product == null) {
+      throw StateError('That product could not be found.');
+    }
+    final after = product.stock + delta;
+    if (after < 0) {
+      throw StateError(
+        'That would leave ${product.displayName} below zero. There are '
+        '${AppFormatters.quantity(product.stock)} on the books.',
+      );
+    }
+
+    await _db.transaction(() async {
+      await (_db.update(_db.products)..where((p) => p.id.equals(productId)))
+          .write(ProductsCompanion(currentStock: Value(after)));
+      await _db
+          .into(_db.inventoryMovements)
+          .insert(
+            InventoryMovementsCompanion.insert(
+              productId: productId,
+              movementType: 'adjustment',
+              quantity: delta,
+              referenceType: const Value('adjustments'),
+            ),
+          );
+      await _audit(
+        'UPDATE',
+        'products',
+        productId,
+        'Adjusted ${product.displayName} by '
+            '${delta > 0 ? '+' : ''}${AppFormatters.quantity(delta)}: '
+            '${reason.trim()}',
+      );
+    });
+    await refresh();
+  }
+
+  Future<String> _nextStocktakeReference(DateTime at) async {
+    final label = '${at.year}${at.month.toString().padLeft(2, '0')}';
+    final existing = await (_db.select(
+      _db.stocktakes,
+    )..where((s) => s.reference.like('STK/$label/%'))).get();
+    var highest = 0;
+    for (final row in existing) {
+      final tail = int.tryParse(row.reference.split('/').last) ?? 0;
+      if (tail > highest) highest = tail;
+    }
+    return 'STK/$label/${(highest + 1).toString().padLeft(3, '0')}';
+  }
+
+  Future<void> _loadStocktakes() async {
+    final rows = await (_db.select(
+      _db.stocktakes,
+    )..orderBy([(s) => OrderingTerm.desc(s.startedAt)])).get();
+    final names = {
+      for (final u in await _db.select(_db.users).get()) u.id: u.fullName,
+    };
+    final items = await _db.select(_db.stocktakeItems).get();
+    final byProduct = {for (final p in products) p.id: p};
+
+    stocktakes
+      ..clear()
+      ..addAll(
+        rows.map((row) {
+          final lines = items.where((i) => i.stocktakeId == row.id).map((i) {
+            final product = byProduct[i.productId];
+            return StocktakeLine(
+              productId: i.productId,
+              description: product?.displayName ?? 'Removed product',
+              sku: product?.sku ?? '',
+              systemQuantity: i.systemQuantity,
+              countedQuantity: i.countedQuantity,
+              costPrice: i.costPrice,
+              countedAt: i.countedAt,
+            );
+          }).toList()..sort((a, b) => a.description.compareTo(b.description));
+
+          return StocktakeRecord(
+            id: row.id,
+            reference: row.reference,
+            status: StocktakeStatus.fromName(row.status),
+            startedAt: row.startedAt,
+            committedAt: row.committedAt,
+            userName: names[row.userId] ?? '',
+            notes: row.notes ?? '',
+            lines: lines,
+          );
+        }),
+      );
+  }
 
   // ------------------------------------------------- payments & statements
 

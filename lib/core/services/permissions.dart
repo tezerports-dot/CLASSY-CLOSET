@@ -58,6 +58,12 @@ enum Permission {
   /// Separate from [editCustomers] on purpose: a cashier can correct a phone
   /// number, but writing off what someone owes is the owner's decision.
   recordPayments,
+
+  /// Count the rails and apply what the count found.
+  ///
+  /// Committing a count writes shrinkage off the books, which is why it is not
+  /// simply part of [editProducts].
+  adjustStock,
 }
 
 /// The roles a user can hold. The name stored in the database is matched
@@ -119,6 +125,7 @@ const Map<AppRole, Set<Permission>> rolePermissions = {
     Permission.recordPurchases,
     Permission.recordExpenses,
     Permission.recordPayments,
+    Permission.adjustStock,
   },
   AppRole.manager: {
     Permission.viewDashboard,
@@ -138,6 +145,7 @@ const Map<AppRole, Set<Permission>> rolePermissions = {
     Permission.recordPurchases,
     Permission.recordExpenses,
     Permission.recordPayments,
+    Permission.adjustStock,
   },
   AppRole.cashier: {
     Permission.viewDashboard,
@@ -156,8 +164,9 @@ const Map<AppRole, Set<Permission>> rolePermissions = {
     Permission.editProducts,
     Permission.viewSuppliers,
     Permission.editSuppliers,
-    // Receiving a delivery is exactly this role's job.
+    // Receiving a delivery and counting the rails are exactly this role's job.
     Permission.recordPurchases,
+    Permission.adjustStock,
   },
   AppRole.sales: {
     Permission.viewDashboard,
@@ -191,6 +200,7 @@ const Map<String, Permission> routePermissions = {
   '/shift': Permission.manageShift,
   '/purchases': Permission.recordPurchases,
   '/expenses': Permission.recordExpenses,
+  '/stocktake': Permission.adjustStock,
   '/reports': Permission.viewReports,
   '/settings': Permission.manageSettings,
   '/users': Permission.manageUsers,

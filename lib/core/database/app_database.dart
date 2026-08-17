@@ -429,6 +429,42 @@ class PartyPayments extends Table {
   DateTimeColumn get paidAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+/// A physical count of the rails, held open while the counting happens.
+///
+/// Counting a shop takes longer than one sitting, and sales carry on while it
+/// does — so the count is a session that can be picked back up, and the system
+/// figure each line is compared against is captured at the moment that line was
+/// counted rather than at the end.
+@DataClassName('StocktakeRow')
+class Stocktakes extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get reference => text().unique()();
+
+  /// 'open', 'committed' or 'abandoned'.
+  TextColumn get status => text().withDefault(const Constant('open'))();
+  TextColumn get notes => text().nullable()();
+  IntColumn get userId => integer().nullable().references(Users, #id)();
+  DateTimeColumn get startedAt => dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get committedAt => dateTime().nullable()();
+}
+
+@DataClassName('StocktakeItemRow')
+class StocktakeItems extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get stocktakeId =>
+      integer().references(Stocktakes, #id, onDelete: KeyAction.cascade)();
+  IntColumn get productId => integer().references(Products, #id)();
+
+  /// What the books said at the moment this line was counted.
+  RealColumn get systemQuantity => real()();
+  RealColumn get countedQuantity => real()();
+
+  /// Cost captured at count time, so the shrinkage figure survives a later
+  /// price change.
+  RealColumn get costPrice => real().withDefault(const Constant(0))();
+  DateTimeColumn get countedAt => dateTime().withDefault(currentDateAndTime)();
+}
+
 @DataClassName('SettingRow')
 class Settings extends Table {
   TextColumn get key => text()();
@@ -463,6 +499,8 @@ class Settings extends Table {
     Shifts,
     CashMovements,
     PartyPayments,
+    Stocktakes,
+    StocktakeItems,
     Expenses,
     ExpenseCategories,
     CashBook,
@@ -480,7 +518,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.withExecutor(super.executor);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -529,6 +567,11 @@ class AppDatabase extends _$AppDatabase {
       if (from < 4) {
         // v4 lets money be settled against a customer or supplier balance.
         await m.createTable(partyPayments);
+      }
+      if (from < 5) {
+        // v5 adds physical stock counts and the adjustments they produce.
+        await m.createTable(stocktakes);
+        await m.createTable(stocktakeItems);
       }
     },
     beforeOpen: (details) async {

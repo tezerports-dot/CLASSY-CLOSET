@@ -158,4 +158,5 @@ String _permissionLabel(Permission permission) => switch (permission) {
   Permission.recordPurchases => 'Receive stock from a supplier',
   Permission.recordExpenses => 'Record what the shop spent',
   Permission.recordPayments => 'Settle a customer or supplier balance',
+  Permission.adjustStock => 'Count stock and write differences off',
 };
