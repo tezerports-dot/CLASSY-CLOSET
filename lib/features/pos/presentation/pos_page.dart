@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
 import '../../../app/di/injection.dart';
+import '../../../core/services/printer_service.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/section_card.dart';
 import '../data/invoice_document.dart';
 import '../data/repositories/pos_repository.dart';
+import '../data/thermal_receipt.dart';
 
 enum _PaymentMode { cash, card, upi, split }
 
@@ -22,6 +24,7 @@ class PosPage extends StatefulWidget {
 class _PosPageState extends State<PosPage> {
   late final RetailStore _store;
   late final PosRepository _posRepository;
+  late final PrinterService _printerService;
   final _customerSearch = TextEditingController();
   final _productSearch = TextEditingController();
 
@@ -38,11 +41,16 @@ class _PosPageState extends State<PosPage> {
   InvoicePaper _paper = InvoicePaper.roll80;
   bool _checkingOut = false;
 
+  /// Kept so the counter can reprint the bill it just handed over without
+  /// re-ringing the sale.
+  InvoiceData? _lastInvoice;
+
   @override
   void initState() {
     super.initState();
     _store = getIt<RetailStore>();
     _posRepository = getIt<PosRepository>();
+    _printerService = getIt<PrinterService>();
     _cashTendered.addListener(_onPaymentChanged);
     _splitCash.addListener(_onPaymentChanged);
     _splitCard.addListener(_onPaymentChanged);
@@ -226,22 +234,41 @@ class _PosPageState extends State<PosPage> {
                         const SizedBox(height: 16),
                         _paymentPanel(total),
                         const SizedBox(height: 16),
-                        DropdownButtonFormField<InvoicePaper>(
-                          initialValue: _paper,
-                          decoration: const InputDecoration(
-                            labelText: 'Print on',
-                            prefixIcon: Icon(Icons.receipt_long),
-                          ),
-                          items: [
-                            for (final paper in InvoicePaper.values)
-                              DropdownMenuItem(
-                                value: paper,
-                                child: Text(paper.label),
+                        if (_store.printerSettings.isThermal)
+                          // The roll is whatever the printer is loaded with, so
+                          // in direct mode the choice belongs in Settings, not
+                          // in front of the cashier on every sale.
+                          Row(
+                            children: [
+                              const Icon(Icons.print, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Printing direct to '
+                                  '${_store.printerSettings.printerName ?? 'the default printer'}'
+                                  ' (${_store.printerSettings.paper.label})',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
                               ),
-                          ],
-                          onChanged: (paper) =>
-                              setState(() => _paper = paper ?? _paper),
-                        ),
+                            ],
+                          )
+                        else
+                          DropdownButtonFormField<InvoicePaper>(
+                            initialValue: _paper,
+                            decoration: const InputDecoration(
+                              labelText: 'Print on',
+                              prefixIcon: Icon(Icons.receipt_long),
+                            ),
+                            items: [
+                              for (final paper in InvoicePaper.values)
+                                DropdownMenuItem(
+                                  value: paper,
+                                  child: Text(paper.label),
+                                ),
+                            ],
+                            onChanged: (paper) =>
+                                setState(() => _paper = paper ?? _paper),
+                          ),
                         const SizedBox(height: 16),
                         SizedBox(
                           width: double.infinity,
@@ -259,6 +286,28 @@ class _PosPageState extends State<PosPage> {
                                 : const Icon(Icons.receipt),
                             label: const Text('Checkout and print receipt'),
                           ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _lastInvoice == null
+                                    ? null
+                                    : _reprintLast,
+                                icon: const Icon(Icons.print_outlined),
+                                label: const Text('Reprint last'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _openDrawerWithoutSale,
+                                icon: const Icon(Icons.point_of_sale),
+                                label: const Text('Open drawer'),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -628,17 +677,88 @@ class _PosPageState extends State<PosPage> {
         customerPhone: customer?.phone,
         customerAddress: customer?.address,
       );
-      await Printing.layoutPdf(
-        name: sale.receipt,
-        format: _paper.format,
-        onLayout: (_) => buildInvoicePdf(data: invoice, paper: _paper),
-      );
+      _lastInvoice = invoice;
+      final note = await _deliverReceipt(invoice);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Completed ${sale.receipt}')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Completed ${sale.receipt}. $note')),
+      );
     } finally {
       if (mounted) setState(() => _checkingOut = false);
     }
+  }
+
+  /// Gets the bill onto paper by whichever route the shop has configured, and
+  /// returns the sentence to show the cashier.
+  ///
+  /// Direct thermal printing is attempted first when it is switched on, but a
+  /// printer that is off, out of paper or renamed must not cost the shop the
+  /// bill: the print dialog is the fallback, and the cashier is told that is
+  /// what happened rather than being left wondering why nothing came out.
+  Future<String> _deliverReceipt(InvoiceData invoice) async {
+    final settings = _store.printerSettings;
+    if (settings.isThermal && _printerService.supportsDirectPrinting) {
+      try {
+        final sent = await _printerService.send(
+          buildThermalReceipt(data: invoice, settings: settings),
+          printerName: settings.printerName,
+          copies: settings.copies,
+        );
+        if (sent) return 'Bill printed.';
+      } on Object {
+        // Fall through to the dialog below.
+      }
+      await _printViaDialog(invoice);
+      return 'The thermal printer did not answer, so the print dialog opened '
+          'instead. Check it under Settings > Printing.';
+    }
+    await _printViaDialog(invoice);
+    return 'Bill sent to the printer.';
+  }
+
+  Future<void> _printViaDialog(InvoiceData invoice) => Printing.layoutPdf(
+    name: invoice.sale.receipt,
+    format: _paper.format,
+    onLayout: (_) => buildInvoicePdf(data: invoice, paper: _paper),
+  );
+
+  /// Reprints the bill that was just completed — the single most common request
+  /// at a counter, and previously impossible without re-ringing the sale.
+  Future<void> _reprintLast() async {
+    final invoice = _lastInvoice;
+    if (invoice == null) return;
+    final note = await _deliverReceipt(invoice);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Reprinted ${invoice.sale.receipt}. $note')),
+    );
+  }
+
+  /// The "no sale" button: opens the drawer to give change or take a float out,
+  /// and records why so the till still reconciles at close.
+  Future<void> _openDrawerWithoutSale() async {
+    final settings = _store.printerSettings;
+    if (!settings.isThermal || !_printerService.supportsDirectPrinting) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'The drawer opens through the thermal printer. Turn direct '
+            'printing on under Settings > Printing first.',
+          ),
+        ),
+      );
+      return;
+    }
+    final opened = await _printerService.openDrawer(settings);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          opened
+              ? 'Drawer opened.'
+              : 'The printer did not answer, so the drawer stayed shut.',
+        ),
+      ),
+    );
   }
 }

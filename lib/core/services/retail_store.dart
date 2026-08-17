@@ -11,6 +11,7 @@ import '../database/app_database.dart';
 import '../utils/formatters.dart';
 import 'gst.dart';
 import 'permissions.dart';
+import 'printer_service.dart';
 import 'reports.dart';
 import 'returns_and_shifts.dart';
 
@@ -379,12 +380,14 @@ class RetailStore extends ChangeNotifier {
 
   static const storeProfileKey = 'store_profile';
   static const gstSettingsKey = 'gst_settings';
+  static const printerSettingsKey = 'printer_settings';
   static const invoiceCounterKey = 'invoice_counter';
 
   final AppDatabase _db;
   AppUser? currentUser;
   StoreProfile? storeProfile;
   GstSettings gstSettings = const GstSettings();
+  PrinterSettings printerSettings = const PrinterSettings();
   final products = <ProductRecord>[];
   final styles = <StyleRecord>[];
   final customers = <CustomerRecord>[];
@@ -474,6 +477,7 @@ class RetailStore extends ChangeNotifier {
     await Future.wait([
       _loadStoreProfile(),
       _loadGstSettings(),
+      _loadPrinterSettings(),
       _loadLookups(),
       _loadSuppliers(),
       _loadProducts(),
@@ -2399,6 +2403,29 @@ class RetailStore extends ChangeNotifier {
     gstSettings = row == null
         ? const GstSettings()
         : GstSettings.decode(row.valueJson);
+  }
+
+  Future<void> _loadPrinterSettings() async {
+    final row = await (_db.select(
+      _db.settings,
+    )..where((s) => s.key.equals(printerSettingsKey))).getSingleOrNull();
+    printerSettings = row == null
+        ? const PrinterSettings()
+        : PrinterSettings.decode(row.valueJson);
+  }
+
+  Future<void> savePrinterSettings(PrinterSettings settings) async {
+    await _db
+        .into(_db.settings)
+        .insertOnConflictUpdate(
+          SettingsCompanion.insert(
+            key: printerSettingsKey,
+            valueJson: settings.encode(),
+          ),
+        );
+    printerSettings = settings;
+    await _audit('UPSERT', 'settings', null, 'Updated printer settings');
+    notifyListeners();
   }
 
   Future<void> saveGstSettings(GstSettings settings) async {
