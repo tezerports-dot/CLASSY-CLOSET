@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:classy_closet/core/database/app_database.dart';
 import 'package:classy_closet/core/services/escpos.dart';
 import 'package:classy_closet/core/services/printer_service.dart';
+import 'package:classy_closet/core/services/receipt_logo.dart';
 import 'package:classy_closet/core/services/retail_store.dart';
 import 'package:classy_closet/features/pos/data/invoice_document.dart';
 import 'package:classy_closet/features/pos/data/thermal_receipt.dart';
@@ -229,6 +230,60 @@ void main() {
       expect(text, contains('Exchange within 7 days with the bill.'));
       expect(text, contains('Subject to Jaipur jurisdiction'));
       expect(text, contains('Thank you for shopping with us.'));
+    });
+
+    test('the logo replaces the shop name in large type', () async {
+      final invoice = await sellOne();
+      final logo = ReceiptLogo(
+        rows: List.generate(8, (_) => List<int>.filled(48, 0xFF)),
+        widthDots: 384,
+        heightDots: 8,
+      );
+
+      final job = buildThermalReceipt(
+        data: invoice,
+        settings: const PrinterSettings(paper: ThermalPaper.mm58),
+        logo: logo,
+      );
+
+      expect(containsBytes(job, [0x1D, 0x76, 0x30]), isTrue);
+      // The artwork already says what the shop is called; printing the name
+      // again underneath would just use more paper.
+      expect(paperText(job), isNot(contains('Classy Closet')));
+      expect(paperText(job), contains('TAX INVOICE'));
+    });
+
+    test('turning the logo off falls back to the shop name', () async {
+      final invoice = await sellOne();
+      final logo = ReceiptLogo(
+        rows: List.generate(8, (_) => List<int>.filled(48, 0xFF)),
+        widthDots: 384,
+        heightDots: 8,
+      );
+
+      final job = buildThermalReceipt(
+        data: invoice,
+        settings: const PrinterSettings(
+          paper: ThermalPaper.mm58,
+          printLogoOnReceipt: false,
+        ),
+        logo: logo,
+      );
+
+      expect(containsBytes(job, [0x1D, 0x76, 0x30]), isFalse);
+      expect(paperText(job), contains('Classy Closet'));
+    });
+
+    test('a shop with no logo still gets its name on the bill', () async {
+      final invoice = await sellOne();
+
+      final job = buildThermalReceipt(
+        data: invoice,
+        settings: const PrinterSettings(),
+      );
+
+      expect(containsBytes(job, [0x1D, 0x76, 0x30]), isFalse);
+      expect(paperText(job), contains('Classy Closet'));
     });
 
     test('a shop that leaves the wording blank gets no empty lines', () async {

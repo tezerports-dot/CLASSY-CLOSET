@@ -35,6 +35,7 @@ class PrinterSettings {
     this.openDrawerOnCashSale = false,
     this.drawerPin = 0,
     this.printBarcodeOnReceipt = true,
+    this.printLogoOnReceipt = true,
     this.printUpiQr = false,
     this.upiVpa = '',
     this.upiPayeeName = '',
@@ -57,6 +58,10 @@ class PrinterSettings {
   final int drawerPin;
   final bool printBarcodeOnReceipt;
 
+  /// Print the shop's logo at the head of the bill. Worth turning off for a
+  /// logo that comes out as a dark block, or to save roll paper.
+  final bool printLogoOnReceipt;
+
   /// Print a UPI QR on the bill so the customer can scan and pay.
   final bool printUpiQr;
   final String upiVpa;
@@ -77,6 +82,7 @@ class PrinterSettings {
     bool? openDrawerOnCashSale,
     int? drawerPin,
     bool? printBarcodeOnReceipt,
+    bool? printLogoOnReceipt,
     bool? printUpiQr,
     String? upiVpa,
     String? upiPayeeName,
@@ -89,6 +95,7 @@ class PrinterSettings {
     openDrawerOnCashSale: openDrawerOnCashSale ?? this.openDrawerOnCashSale,
     drawerPin: drawerPin ?? this.drawerPin,
     printBarcodeOnReceipt: printBarcodeOnReceipt ?? this.printBarcodeOnReceipt,
+    printLogoOnReceipt: printLogoOnReceipt ?? this.printLogoOnReceipt,
     printUpiQr: printUpiQr ?? this.printUpiQr,
     upiVpa: upiVpa ?? this.upiVpa,
     upiPayeeName: upiPayeeName ?? this.upiPayeeName,
@@ -103,6 +110,7 @@ class PrinterSettings {
     'openDrawerOnCashSale': openDrawerOnCashSale,
     'drawerPin': drawerPin,
     'printBarcodeOnReceipt': printBarcodeOnReceipt,
+    'printLogoOnReceipt': printLogoOnReceipt,
     'printUpiQr': printUpiQr,
     'upiVpa': upiVpa,
     'upiPayeeName': upiPayeeName,
@@ -123,6 +131,7 @@ class PrinterSettings {
         openDrawerOnCashSale: json['openDrawerOnCashSale'] as bool? ?? false,
         drawerPin: (json['drawerPin'] as num?)?.toInt() == 1 ? 1 : 0,
         printBarcodeOnReceipt: json['printBarcodeOnReceipt'] as bool? ?? true,
+        printLogoOnReceipt: json['printLogoOnReceipt'] as bool? ?? true,
         printUpiQr: json['printUpiQr'] as bool? ?? false,
         upiVpa: (json['upiVpa'] as String? ?? '').trim(),
         upiPayeeName: (json['upiPayeeName'] as String? ?? '').trim(),

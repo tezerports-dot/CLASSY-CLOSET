@@ -205,6 +205,17 @@ class _PrinterSettingsFormState extends State<PrinterSettingsForm> {
             ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
+            value: _settings.printLogoOnReceipt,
+            title: const Text('Print the shop logo on the bill'),
+            subtitle: const Text(
+              'Turn off if the logo comes out as a dark block, or to save '
+              'roll paper. The shop name prints instead.',
+            ),
+            onChanged: (on) =>
+                _update(_settings.copyWith(printLogoOnReceipt: on)),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
             value: _settings.printBarcodeOnReceipt,
             title: const Text('Print the bill number as a barcode'),
             subtitle: const Text(

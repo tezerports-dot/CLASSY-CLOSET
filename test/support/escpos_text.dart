@@ -34,6 +34,12 @@ int escPosCommandLength(List<int> bytes, int at) {
   if (key == 0x1D28 && bytes[at + 2] == 0x6B) {
     return 5 + (bytes[at + 3] | (bytes[at + 4] << 8)); // GS ( k pL pH ...
   }
+  if (key == 0x1D76 && bytes[at + 2] == 0x30) {
+    // GS v 0 m xL xH yL yH <xL|xH bytes per row × yL|yH rows>
+    final bytesPerRow = bytes[at + 4] | (bytes[at + 5] << 8);
+    final rows = bytes[at + 6] | (bytes[at + 7] << 8);
+    return 8 + bytesPerRow * rows;
+  }
   fail(
     'unrecognised ESC/POS command 0x${key.toRadixString(16)} at byte $at — '
     'add it to escPosCommandLength when the builder learns a new one',

@@ -70,7 +70,9 @@ class StoreProfile {
     gstin: '08KGDPK6891Q1Z8',
     stateCode: '08',
     receiptNumberPrefix: 'CC',
-    tagline: "Men's Fashion Store — Look Classy, Feel Content",
+    // The logo already carries "Men's Fashion Store", so the tagline is only
+    // the half the artwork does not say.
+    tagline: 'Look Classy, Feel Content',
     receiptFooterText: 'Thank you for shopping with us.',
     termsText:
         'Exchange within 7 days with the bill. '

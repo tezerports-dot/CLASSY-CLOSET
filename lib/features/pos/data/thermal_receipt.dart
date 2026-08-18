@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../../core/services/escpos.dart';
 import '../../../core/services/printer_service.dart';
+import '../../../core/services/receipt_logo.dart';
 import '../../../core/utils/formatters.dart';
 import 'invoice_document.dart';
 
@@ -14,9 +15,13 @@ import 'invoice_document.dart';
 /// The layout is column arithmetic rather than widgets — on a roll printer a
 /// line is exactly [ThermalPaper.columns] characters and nothing reflows — so
 /// every row is padded to width here rather than left to the device.
+/// [logo] is the shop's mark already reduced to one bit per dot. It is passed
+/// in rather than loaded here so this stays a pure function of the sale — the
+/// caller does the file reading once and reuses the result across reprints.
 Uint8List buildThermalReceipt({
   required InvoiceData data,
   required PrinterSettings settings,
+  ReceiptLogo? logo,
 }) {
   final paper = settings.paper;
   final builder = EscPosBuilder(paper: paper);
@@ -24,12 +29,24 @@ Uint8List buildThermalReceipt({
   final sale = data.sale;
 
   // ------------------------------------------------------------ shop header
-  builder.line(
-    profile?.storeName ?? 'RetailPro',
-    bold: true,
-    center: true,
-    doubleHeight: true,
-  );
+  //
+  // The logo replaces the name in large type rather than sitting above it —
+  // the artwork already says what the shop is called, and roll paper is not
+  // free.
+  final printedLogo =
+      settings.printLogoOnReceipt && logo != null && !logo.isEmpty;
+  if (printedLogo) {
+    builder
+      ..rasterImage(logo.rows)
+      ..feed();
+  } else {
+    builder.line(
+      profile?.storeName ?? 'RetailPro',
+      bold: true,
+      center: true,
+      doubleHeight: true,
+    );
+  }
   final tagline = profile?.tagline.trim() ?? '';
   if (tagline.isNotEmpty) builder.line(tagline, center: true);
   final address = profile?.address?.trim() ?? '';

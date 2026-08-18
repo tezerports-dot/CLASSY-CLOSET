@@ -6,6 +6,7 @@ import 'package:printing/printing.dart';
 import '../../../app/di/injection.dart';
 import '../../../core/services/permissions.dart';
 import '../../../core/services/printer_service.dart';
+import '../../../core/services/receipt_logo.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/section_card.dart';
@@ -51,6 +52,11 @@ class _PosPageState extends State<PosPage> {
 
   /// The card machine's or UPI app's own reference for this payment.
   final _paymentReference = TextEditingController();
+
+  /// The shop's logo, already reduced to one bit per dot. Converting it is not
+  /// free, so it is done once and reused for every bill and reprint.
+  ReceiptLogo? _thermalLogo;
+  String? _thermalLogoSource;
 
   @override
   void initState() {
@@ -768,7 +774,11 @@ class _PosPageState extends State<PosPage> {
     if (settings.isThermal && _printerService.supportsDirectPrinting) {
       try {
         final sent = await _printerService.send(
-          buildThermalReceipt(data: invoice, settings: settings),
+          buildThermalReceipt(
+            data: invoice,
+            settings: settings,
+            logo: await _logoFor(settings),
+          ),
           printerName: settings.printerName,
           copies: settings.copies,
         );
@@ -782,6 +792,18 @@ class _PosPageState extends State<PosPage> {
     }
     await _printViaDialog(invoice);
     return 'Bill sent to the printer.';
+  }
+
+  /// The logo prepared for the roll currently configured, converted on first
+  /// use and again only if the file or the paper width changes.
+  Future<ReceiptLogo?> _logoFor(PrinterSettings settings) async {
+    if (!settings.printLogoOnReceipt) return null;
+    final path = _store.storeProfile?.logoPath;
+    final key = '$path@${settings.paper.name}';
+    if (_thermalLogoSource == key) return _thermalLogo;
+    _thermalLogo = await loadReceiptLogo(path, paper: settings.paper);
+    _thermalLogoSource = key;
+    return _thermalLogo;
   }
 
   Future<void> _printViaDialog(InvoiceData invoice) => Printing.layoutPdf(

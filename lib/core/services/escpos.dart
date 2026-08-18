@@ -35,13 +35,17 @@ import 'dart:typed_data';
 /// the printer's default font. Those two counts are what the layout code needs;
 /// millimetres never enter into it.
 enum ThermalPaper {
-  mm58(32, '58 mm roll'),
-  mm80(48, '80 mm roll');
+  mm58(32, 384, '58 mm roll'),
+  mm80(48, 576, '80 mm roll');
 
-  const ThermalPaper(this.columns, this.label);
+  const ThermalPaper(this.columns, this.dots, this.label);
 
   /// Characters per line at normal width.
   final int columns;
+
+  /// Printable width in dots, which is what an image has to be sized to.
+  /// 384 and 576 are the two standard head widths.
+  final int dots;
   final String label;
 
   static ThermalPaper fromName(String? name) => ThermalPaper.values.firstWhere(
@@ -202,6 +206,41 @@ class EscPosBuilder {
       ..addAll([_gs, 0x6B, 73, payload.length])
       ..addAll(payload)
       ..add(_lf);
+    _align(0);
+  }
+
+  /// Prints a 1-bit raster image — the shop's logo at the head of the bill.
+  ///
+  /// [rows] holds one entry per scan line, each already packed 8 dots to a
+  /// byte, most significant bit leftmost, a set bit meaning a black dot. All
+  /// rows must be the same length.
+  ///
+  /// `GS v 0` is what the generic 58 mm and 80 mm printers sold in India
+  /// implement. Epson's own reference marks it obsolete in favour of
+  /// `GS ( L`, but the newer command is not present on the cheap hardware this
+  /// runs against, and there is no printer here to verify a fallback against —
+  /// so the widely-implemented command is the one emitted.
+  void rasterImage(List<List<int>> rows) {
+    if (rows.isEmpty) return;
+    final bytesPerRow = rows.first.length;
+    if (bytesPerRow == 0) return;
+    if (rows.any((r) => r.length != bytesPerRow)) return;
+    final height = rows.length;
+
+    _align(1);
+    _bytes.addAll([
+      _gs,
+      0x76,
+      0x30,
+      0x00, // normal scale
+      bytesPerRow & 0xFF,
+      (bytesPerRow >> 8) & 0xFF,
+      height & 0xFF,
+      (height >> 8) & 0xFF,
+    ]);
+    for (final row in rows) {
+      _bytes.addAll(row);
+    }
     _align(0);
   }
 
