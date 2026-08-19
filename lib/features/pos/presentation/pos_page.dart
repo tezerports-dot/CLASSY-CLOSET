@@ -476,14 +476,19 @@ class _PosPageState extends State<PosPage> {
                   onPressed: _lastInvoice == null ? null : _reprintLast,
                 ),
               ),
-              const SizedBox(width: AppSpacing.xs),
-              Expanded(
-                child: SecondaryButton(
-                  label: 'Drawer',
-                  icon: Icons.point_of_sale_outlined,
-                  onPressed: _openDrawerWithoutSale,
+              // Only a shop that has a drawer wired to the printer gets this
+              // button. Where cash is handled by hand it would do nothing, and
+              // a button that does nothing is worse than no button.
+              if (_store.printerSettings.openDrawerOnCashSale) ...[
+                const SizedBox(width: AppSpacing.xs),
+                Expanded(
+                  child: SecondaryButton(
+                    label: 'Drawer',
+                    icon: Icons.point_of_sale_outlined,
+                    onPressed: _openDrawerWithoutSale,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ],

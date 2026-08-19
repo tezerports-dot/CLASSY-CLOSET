@@ -24,7 +24,8 @@ Optional hardware, which you can add later:
 - A barcode scanner (any USB "keyboard wedge" model — it types the barcode
   like a keyboard, so it needs no driver).
 - A thermal receipt printer, 58 mm or 80 mm.
-- A cash drawer that plugs into the printer.
+- A cash drawer that plugs into the printer — entirely optional; the app is
+  set up for cash handled by hand.
 
 ---
 
@@ -265,26 +266,34 @@ Go to **POS**.
 2. Pick the customer, or leave it on **Walk-in Customer**.
 3. Choose **Cash**, **Card**, **UPI** or **Split**.
 4. For cash, type what the customer handed you — the change is worked out.
-5. Choose the paper under **Print on**:
-   - **Thermal 80 mm** — the usual counter receipt roll
-   - **Thermal 58 mm** — the narrow roll
-   - **A4 sheet** — a full tax invoice for a business customer
-6. Click **Checkout and print receipt**.
+5. To take money off the whole bill, type the amount in the gold **Discount**
+   box — in rupees, the way the customer hears it. "It came to 2,000, call it
+   1,800" means typing `200`. The tax is recalculated on the discounted value,
+   so the bill adds up.
+6. Click **Preview** first if you want to see the bill before it uses paper.
+7. Click **Checkout & print**.
 
-Windows shows its print dialog. Pick your printer and print.
+If you have set up a thermal printer under **Hardware**, the bill prints
+straight to the roll — no dialog, no clicking. If no thermal printer is
+configured, Windows shows its usual print dialog instead.
 
-> **Tip:** in the print dialog, tick "Remember my choice" if your printer
-> offers it, so you do not pick it every time.
+> **Someone stepped away mid-sale?** Click **Hold bill**, give it a name, and
+> serve the next customer. The **held** button at the top brings it back.
 
 ---
 
 ## Connecting the hardware
 
+**There is a screen for all of this.** Open **Hardware** in the sidebar. Each
+device says whether it is connected and has one button that proves it — you
+can test the scanner, print a test page and open the drawer without ringing up
+a real sale. Set the printer up there once and the shop is ready.
+
 ### Barcode scanner
 
 Plug it into a USB port. Windows recognises it as a keyboard — there is no
-driver to install. Test it by opening Notepad and scanning something; the
-number should appear.
+driver to install. Test it on the **Hardware** screen: scan anything and it
+tells you what it read and whether that tag is in your catalogue.
 
 ### Thermal receipt printer
 
@@ -293,14 +302,28 @@ number should appear.
    and similar all provide one).
 3. Open **Settings → Bluetooth & devices → Printers & scanners** and check it
    appears.
-4. Right-click it → **Printing preferences** → set the paper size to match
-   your roll (80 mm or 58 mm).
+4. In the app, open **Hardware → Receipt printer**. Pick the printer, set the
+   roll width to match what you bought (80 mm or 58 mm), and click **Print a
+   test page**. If the test page comes out, billing is ready.
 
-### Cash drawer
+Bills then print straight to the roll and are cut automatically. The shop logo
+prints at the top, and the bill carries a barcode so a return can be looked up
+by scanning it.
 
-The drawer plugs into the **RJ11 socket on the back of the receipt printer**,
-not into the PC. It opens when the printer tells it to. Automatic drawer
-opening is not wired up yet — see "What is not built yet" below.
+### Cash drawer — only if you have one
+
+**You do not need a cash drawer.** Plenty of shops keep the cash in a box
+under the counter and handle it by hand, and the app is set up that way out of
+the box: it never tries to open anything, and the till still reconciles at the
+end of the day because the count you type in is what it checks against.
+
+If you do add one later: the drawer plugs into the **RJ11 socket on the back
+of the receipt printer**, not into the PC, and opens when the printer tells it
+to. Turn it on under **Hardware → Cash drawer**, pick the pin your drawer uses
+(pin 2 suits almost everything; try pin 5 if nothing happens) and click **Open
+the drawer now** to test it. From then on it opens by itself on cash sales,
+and a **Drawer** button appears on the billing screen for giving change
+without a sale. Leave the setting off and neither appears.
 
 ---
 
@@ -398,6 +421,10 @@ Beyond billing, these are wired up and working:
 | **Till** | Open with a counted float, record cash paid in or out during the day, then close by counting the drawer. The difference is recorded against whoever was on the counter. |
 | **Expenses** | Rent, wages, electricity. This is what turns gross margin into real net profit on the reports. |
 | **Reports** | Sales register, GST by rate, HSN summary, best sellers and dead stock, for any date range. Every table exports to CSV for your accountant. |
+| **Stock count** | Scan the rails and record what is actually there. The count can be picked up again the next day, and sales carry on while you count. Applying it writes the difference off. |
+| **Customers** | A running account for regulars. Take a payment against a balance, and print a statement of account with a running balance. |
+| **Suppliers** | The same, the other way round — what you still owe each wholesaler, and payments against it. |
+| **Hardware** | Scanner, receipt printer, cash drawer and label printer, each with a test button. |
 | **Print labels** | On any design in Products. Barcode price labels for the whole size run, on A4 label sheets or a label roll. |
 
 ### Printing barcode labels
@@ -429,14 +456,11 @@ That is the whole end-of-day routine.
 
 Be aware of these before you rely on the app for everything:
 
-- **Printing goes through the Windows print dialog.** Direct thermal ESC/POS
-  printing and automatic cash-drawer opening are not wired up, so there is a
-  print dialog on every sale. The drawer has to be opened by its key or by the
-  printer's own button.
-- **No physical stock count.** You can correct a count by editing the design's
-  grid, but there is no scan-and-count session with a variance report.
-- **No customer or supplier statement to print.** Balances are shown on screen
-  but cannot be handed to someone as a document.
+- **The card machine does not talk to the app.** You type the transaction
+  reference from the machine's slip into the bill, and it is printed and
+  stored so a charge disputed weeks later can be traced. An automatic Paytm
+  EDC handshake needs merchant credentials and their Windows API, which is not
+  wired up.
 - **No loyalty points or promotions.**
 - **No e-invoicing (IRN/QR).** Only relevant above a turnover threshold —
   check with your accountant whether it applies to you.
