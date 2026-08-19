@@ -202,6 +202,7 @@ const Map<String, Permission> routePermissions = {
   '/expenses': Permission.recordExpenses,
   '/stocktake': Permission.adjustStock,
   '/reports': Permission.viewReports,
+  '/hardware': Permission.manageSettings,
   '/settings': Permission.manageSettings,
   '/users': Permission.manageUsers,
 };

@@ -1,17 +1,34 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../../app/di/injection.dart';
 import '../../../core/services/permissions.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
-import '../../../core/widgets/section_card.dart';
+import '../../../core/widgets/ui_kit.dart';
 
+/// The owner's first look at the day.
+///
+/// Two rows of figures then three short lists — what sold, what is running
+/// out, and who owes money. Everything behind [Permission.viewProfit] is
+/// dropped rather than blanked for a cashier, so their dashboard reads as a
+/// complete screen rather than a redacted one.
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
+}
+
+enum _Period {
+  today('Today'),
+  week('This week'),
+  month('This month');
+
+  const _Period(this.label);
+  final String label;
 }
 
 class _DashboardPageState extends State<DashboardPage> {
@@ -26,243 +43,287 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return AnimatedBuilder(
       animation: _store,
       builder: (context, _) {
-        final summary = _summary;
         final showProfit = _store.can(Permission.viewProfit);
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Good day, ${_store.currentUser?.name ?? 'Admin'}',
-                          style: theme.textTheme.headlineLarge,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(AppFormatters.dateTime(DateTime.now())),
-                      ],
-                    ),
-                  ),
-                  SegmentedButton<_Period>(
-                    segments: const [
-                      ButtonSegment(value: _Period.today, label: Text('Today')),
-                      ButtonSegment(value: _Period.week, label: Text('Week')),
-                      ButtonSegment(value: _Period.month, label: Text('Month')),
-                    ],
-                    selected: {_period},
-                    onSelectionChanged: (s) =>
-                        setState(() => _period = s.single),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
+        final summary = _summary;
 
-              // Headline figures. Profit and GST are the owner's business, so
-              // they only appear for a user who holds viewProfit — a cashier
-              // still sees takings, which is what they need to reconcile.
-              _CardRow(
-                children: [
-                  _Kpi(
-                    label: '${_period.label} sales',
-                    value: AppFormatters.currency(summary.total),
-                    caption: '${summary.count} bill(s)',
-                    icon: Icons.point_of_sale,
-                    color: AppColors.accent,
-                  ),
-                  if (showProfit)
-                    _Kpi(
-                      label: '${_period.label} profit',
-                      value: AppFormatters.currency(summary.profit),
-                      caption:
-                          '${summary.marginPercent.toStringAsFixed(1)}% margin',
-                      icon: Icons.trending_up,
-                      color: AppColors.success,
-                    ),
-                  if (showProfit)
-                    _Kpi(
-                      label: 'GST collected',
-                      value: AppFormatters.currency(summary.tax),
-                      caption: 'payable to government',
-                      icon: Icons.receipt_long,
-                      color: AppColors.warning,
-                    ),
-                  _Kpi(
-                    label: 'Average bill',
-                    value: AppFormatters.currency(summary.averageBill),
-                    caption: '${_period.label.toLowerCase()} average',
-                    icon: Icons.shopping_bag,
-                    color: AppColors.textSecondary,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final columns = AppBreakpoints.kpiColumns(constraints.maxWidth);
+            final narrow = constraints.maxWidth < AppBreakpoints.laptop;
 
-              // How the money actually arrived — this is what gets counted
-              // against the drawer at close of day.
-              _CardRow(
+            return SingleChildScrollView(
+              padding: EdgeInsets.all(narrow ? AppSpacing.xl : AppSpacing.xxl),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _Kpi(
-                    label: 'Cash taken',
-                    value: AppFormatters.currency(summary.cash),
-                    caption: 'count this against the drawer',
-                    icon: Icons.payments,
-                    color: AppColors.success,
-                  ),
-                  _Kpi(
-                    label: 'Card',
-                    value: AppFormatters.currency(summary.card),
-                    caption: 'settles to the bank',
-                    icon: Icons.credit_card,
-                    color: AppColors.accent,
-                  ),
-                  _Kpi(
-                    label: 'UPI',
-                    value: AppFormatters.currency(summary.upi),
-                    caption: 'settles to the bank',
-                    icon: Icons.qr_code_2,
-                    color: AppColors.accent,
-                  ),
-                  if (showProfit)
-                    _Kpi(
+                  _header(context, narrow),
+                  const SizedBox(height: AppSpacing.xxl),
+                  _kpiGrid(columns, [
+                    KpiCard(
+                      label: 'Sales',
+                      value: AppFormatters.currency(summary.total),
+                      caption: '${summary.count} bill(s)',
+                      icon: Icons.receipt_long_rounded,
+                    ),
+                    if (showProfit)
+                      KpiCard(
+                        label: 'Profit',
+                        value: AppFormatters.currency(summary.profit),
+                        caption:
+                            '${summary.marginPercent.toStringAsFixed(1)}% margin',
+                        icon: Icons.trending_up_rounded,
+                        tone: AppColors.success,
+                      ),
+                    if (showProfit)
+                      KpiCard(
+                        label: 'GST collected',
+                        value: AppFormatters.currency(summary.tax),
+                        caption: 'Payable to the government',
+                        icon: Icons.account_balance_rounded,
+                        tone: AppColors.goldDeep,
+                      ),
+                    KpiCard(
+                      label: 'Average bill',
+                      value: AppFormatters.currency(summary.averageBill),
+                      caption: 'Across ${summary.count} bill(s)',
+                      icon: Icons.calculate_rounded,
+                    ),
+                  ]),
+                  const SizedBox(height: AppSpacing.base),
+                  _kpiGrid(columns, [
+                    KpiCard(
+                      label: 'Cash taken',
+                      value: AppFormatters.currency(summary.cash),
+                      icon: Icons.payments_rounded,
+                    ),
+                    KpiCard(
+                      label: 'Card',
+                      value: AppFormatters.currency(summary.card),
+                      icon: Icons.credit_card_rounded,
+                    ),
+                    KpiCard(
+                      label: 'UPI',
+                      value: AppFormatters.currency(summary.upi),
+                      icon: Icons.qr_code_2_rounded,
+                    ),
+                    KpiCard(
                       label: 'Stock value',
                       value: AppFormatters.currency(_store.inventoryValue),
-                      caption: '${_store.products.length} unit(s) on hand',
-                      icon: Icons.inventory_2,
-                      color: AppColors.warning,
+                      caption: '${_store.products.length} item(s) on hand',
+                      icon: Icons.inventory_2_rounded,
                     ),
+                  ]),
+                  const SizedBox(height: AppSpacing.xxl),
+                  _lists(context, narrow, showProfit),
                 ],
               ),
-              const SizedBox(height: 24),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: SectionCard(
-                      title: 'Low stock',
-                      child: _ProductList(
-                        products: _store.lowStockProducts.take(10).toList(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: SectionCard(
-                      title: 'Money owed to you',
-                      child: _CustomerList(
-                        customers: _store.pendingCustomers.take(10).toList(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: SectionCard(
-                      title: 'Recent bills',
-                      child: _SalesList(sales: _store.sales.take(10).toList()),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
   }
-}
 
-enum _Period {
-  today('Today'),
-  week('This week'),
-  month('This month');
+  Widget _header(BuildContext context, bool narrow) {
+    final theme = Theme.of(context);
+    final now = DateTime.now();
+    final hour = now.hour;
+    final greeting = hour < 12
+        ? 'Good morning'
+        : (hour < 17 ? 'Good afternoon' : 'Good evening');
 
-  const _Period(this.label);
-  final String label;
-}
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '$greeting, ${_store.currentUser?.name.split(' ').first ?? 'there'}',
+                style: theme.textTheme.headlineLarge,
+              ),
+              const SizedBox(height: 3),
+              Text(
+                DateFormat('EEEE, d MMMM y').format(now),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: AppColors.inkSoft,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (!narrow)
+          SegmentedButton<_Period>(
+            segments: [
+              for (final p in _Period.values)
+                ButtonSegment(value: p, label: Text(p.label)),
+            ],
+            selected: {_period},
+            showSelectedIcon: false,
+            onSelectionChanged: (s) => setState(() => _period = s.first),
+          ),
+      ],
+    );
+  }
 
-/// Lays KPI cards out in an even row that wraps on a narrow window.
-class _CardRow extends StatelessWidget {
-  const _CardRow({required this.children});
-  final List<Widget> children;
+  Widget _kpiGrid(int columns, List<Widget> cards) {
+    final visible = cards.where((c) => true).toList();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = AppSpacing.base;
+        final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final card in visible)
+              SizedBox(
+                width: width > 0 ? width : constraints.maxWidth,
+                child: card,
+              ),
+          ],
+        );
+      },
+    );
+  }
 
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      const spacing = 16.0;
-      final perRow = constraints.maxWidth < 900 ? 2 : children.length;
-      final width = (constraints.maxWidth - spacing * (perRow - 1)) / perRow;
-      return Wrap(
-        spacing: spacing,
-        runSpacing: spacing,
+  Widget _lists(BuildContext context, bool narrow, bool showProfit) {
+    final cards = <Widget>[
+      SectionCard(
+        title: 'Running low',
+        icon: Icons.warning_amber_rounded,
+        child: _store.lowStockProducts.isEmpty
+            ? const _MiniEmpty('Nothing is running low.')
+            : Column(
+                children: [
+                  for (final p in _store.lowStockProducts.take(6))
+                    _MiniRow(
+                      label: p.displayName,
+                      sub: p.sku,
+                      trailing: StockPill(
+                        stock: p.stock,
+                        minimum: p.minimumStock,
+                      ),
+                      onTap: () => context.go('/products'),
+                    ),
+                ],
+              ),
+      ),
+      SectionCard(
+        title: 'Money owed to you',
+        icon: Icons.account_balance_wallet_outlined,
+        child: _store.pendingCustomers.isEmpty
+            ? const _MiniEmpty('Nobody owes anything.')
+            : Column(
+                children: [
+                  for (final c in _store.pendingCustomers.take(6))
+                    _MiniRow(
+                      label: c.name,
+                      sub: c.phone,
+                      trailing: MoneyText(c.balance, signed: true, size: 13),
+                      onTap: () => context.go('/customers'),
+                    ),
+                ],
+              ),
+      ),
+      SectionCard(
+        title: 'Recent bills',
+        icon: Icons.receipt_rounded,
+        child: _store.sales.isEmpty
+            ? const _MiniEmpty('No bills yet today.')
+            : Column(
+                children: [
+                  for (final s in _store.sales.take(6))
+                    _MiniRow(
+                      label: s.receipt,
+                      labelIsCode: true,
+                      sub: s.customerName,
+                      trailing: MoneyText(s.total, size: 13),
+                      onTap: () => context.go('/pos'),
+                    ),
+                ],
+              ),
+      ),
+    ];
+
+    if (narrow) {
+      return Column(
         children: [
-          for (final child in children) SizedBox(width: width, child: child),
+          for (final c in cards)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.base),
+              child: c,
+            ),
         ],
       );
-    },
-  );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < cards.length; i++) ...[
+          Expanded(child: cards[i]),
+          if (i < cards.length - 1) const SizedBox(width: AppSpacing.base),
+        ],
+      ],
+    );
+  }
 }
 
-class _Kpi extends StatelessWidget {
-  const _Kpi({
+class _MiniRow extends StatelessWidget {
+  const _MiniRow({
     required this.label,
-    required this.value,
-    required this.caption,
-    required this.icon,
-    required this.color,
+    required this.trailing,
+    this.sub,
+    this.onTap,
+    this.labelIsCode = false,
   });
 
   final String label;
-  final String value;
-  final String caption;
-  final IconData icon;
-  final Color color;
+  final String? sub;
+  final Widget trailing;
+  final VoidCallback? onTap;
+  final bool labelIsCode;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadii.input),
       child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+        child: Row(
           children: [
-            Row(
-              children: [
-                Icon(icon, color: color, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: theme.textTheme.labelLarge,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(value, style: theme.textTheme.headlineMedium),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              caption,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 12,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  labelIsCode
+                      ? CodeText(label)
+                      : Text(
+                          label,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                  if ((sub ?? '').isNotEmpty)
+                    Text(
+                      sub!,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppColors.inkFaint,
+                      ),
+                    ),
+                ],
               ),
-              overflow: TextOverflow.ellipsis,
             ),
+            const SizedBox(width: AppSpacing.sm),
+            trailing,
           ],
         ),
       ),
@@ -270,68 +331,19 @@ class _Kpi extends StatelessWidget {
   }
 }
 
-class _ProductList extends StatelessWidget {
-  const _ProductList({required this.products});
-  final List<ProductRecord> products;
+class _MiniEmpty extends StatelessWidget {
+  const _MiniEmpty(this.message);
+
+  final String message;
 
   @override
-  Widget build(BuildContext context) => products.isEmpty
-      ? const Text('Nothing running low.')
-      : Column(
-          children: [
-            for (final p in products)
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(p.displayName),
-                trailing: Text(
-                  '${AppFormatters.quantity(p.stock)} left',
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ),
-          ],
-        );
-}
-
-class _CustomerList extends StatelessWidget {
-  const _CustomerList({required this.customers});
-  final List<CustomerRecord> customers;
-
-  @override
-  Widget build(BuildContext context) => customers.isEmpty
-      ? const Text('Nothing outstanding.')
-      : Column(
-          children: [
-            for (final c in customers)
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(c.name),
-                trailing: Text(AppFormatters.currency(c.balance)),
-              ),
-          ],
-        );
-}
-
-class _SalesList extends StatelessWidget {
-  const _SalesList({required this.sales});
-  final List<SaleRecord> sales;
-
-  @override
-  Widget build(BuildContext context) => sales.isEmpty
-      ? const Text('No bills yet.')
-      : Column(
-          children: [
-            for (final s in sales)
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(s.receipt),
-                subtitle: Text(
-                  '${s.customerName} · ${AppFormatters.date(s.createdAt)}',
-                ),
-                trailing: Text(AppFormatters.currency(s.total)),
-              ),
-          ],
-        );
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl),
+    child: Text(
+      message,
+      style: Theme.of(
+        context,
+      ).textTheme.bodySmall?.copyWith(color: AppColors.inkFaint),
+    ),
+  );
 }

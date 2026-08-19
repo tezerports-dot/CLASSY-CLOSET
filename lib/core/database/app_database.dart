@@ -474,6 +474,36 @@ class StocktakeItems extends Table {
   DateTimeColumn get countedAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+/// A bill parked mid-sale.
+///
+/// A customer goes to try something on and the counter has to serve the next
+/// person. Without this the assistant either makes them wait or loses the
+/// basket, so a held bill has to outlive a restart — the shop's power is not
+/// reliable and a crash must not cost a full trolley.
+@DataClassName('HeldBillRow')
+class HeldBills extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  /// What the counter calls it — a name, a phone, "blue shirt man".
+  TextColumn get label => text().withLength(min: 1, max: 80)();
+  IntColumn get customerId => integer().nullable().references(Customers, #id)();
+  IntColumn get userId => integer().nullable().references(Users, #id)();
+  DateTimeColumn get heldAt => dateTime().withDefault(currentDateAndTime)();
+}
+
+@DataClassName('HeldBillItemRow')
+class HeldBillItems extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get heldBillId =>
+      integer().references(HeldBills, #id, onDelete: KeyAction.cascade)();
+  IntColumn get productId => integer().references(Products, #id)();
+  IntColumn get quantity => integer()();
+
+  /// Any discount already given on the line, kept so recalling restores the
+  /// bill exactly as it was left.
+  RealColumn get discount => real().withDefault(const Constant(0))();
+}
+
 @DataClassName('SettingRow')
 class Settings extends Table {
   TextColumn get key => text()();
@@ -510,6 +540,8 @@ class Settings extends Table {
     PartyPayments,
     Stocktakes,
     StocktakeItems,
+    HeldBills,
+    HeldBillItems,
     Expenses,
     ExpenseCategories,
     CashBook,
@@ -527,7 +559,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.withExecutor(super.executor);
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -586,6 +618,11 @@ class AppDatabase extends _$AppDatabase {
         // v6 ties a bill to the card or UPI transaction that paid it.
         await m.addColumn(sales, sales.paymentReference);
         await m.addColumn(sales, sales.paymentTerminal);
+      }
+      if (from < 7) {
+        // v7 lets a bill be parked while the customer tries something on.
+        await m.createTable(heldBills);
+        await m.createTable(heldBillItems);
       }
     },
     beforeOpen: (details) async {

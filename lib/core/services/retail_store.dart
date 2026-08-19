@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../database/app_database.dart';
 import '../utils/formatters.dart';
 import 'gst.dart';
+import 'held_bills.dart';
 import 'permissions.dart';
 import 'printer_service.dart';
 import 'reports.dart';
@@ -562,6 +563,7 @@ class RetailStore extends ChangeNotifier {
     await _loadShifts();
     await _loadPartyPayments();
     await _loadStocktakes();
+    await _loadHeldBills();
     _rebuildStyles();
     notifyListeners();
   }
@@ -1736,6 +1738,142 @@ class RetailStore extends ChangeNotifier {
   double expensesBetween(DateTime from, DateTime to) => expenses
       .where((e) => !e.spentAt.isBefore(from) && e.spentAt.isBefore(to))
       .fold(0.0, (sum, e) => sum + e.amount);
+
+  // ------------------------------------------------------------- held bills
+
+  final heldBills = <HeldBillRecord>[];
+
+  /// Parks the current basket so the counter can serve someone else.
+  ///
+  /// The customer has gone to try something on; the next person is waiting.
+  /// Everything about the basket is written to disk, because the shop's power
+  /// is not reliable and a crash must not cost a full trolley.
+  Future<HeldBillRecord> holdCurrentBill({
+    required String label,
+    CustomerRecord? customer,
+  }) async {
+    if (cart.isEmpty) {
+      throw StateError('There is nothing on the bill to hold.');
+    }
+    final name = label.trim().isEmpty
+        ? 'Held at ${AppFormatters.dateTime(DateTime.now())}'
+        : label.trim();
+
+    final snapshot = List<CartLine>.from(cart);
+    late int id;
+    await _db.transaction(() async {
+      id = await _db
+          .into(_db.heldBills)
+          .insert(
+            HeldBillsCompanion.insert(
+              label: name,
+              customerId: Value(customer?.id),
+              userId: Value(currentUser?.id),
+            ),
+          );
+      for (final line in snapshot) {
+        await _db
+            .into(_db.heldBillItems)
+            .insert(
+              HeldBillItemsCompanion.insert(
+                heldBillId: id,
+                productId: line.product.id,
+                quantity: line.quantity,
+                discount: Value(line.discount),
+              ),
+            );
+      }
+    });
+
+    cart.clear();
+    await _audit('CREATE', 'held_bills', id, 'Held a bill as "$name"');
+    await refresh();
+    return heldBills.firstWhere((b) => b.id == id);
+  }
+
+  /// Puts a held bill back on the counter and removes it from the held list.
+  ///
+  /// Anything already in the cart is kept — recalling adds to it rather than
+  /// throwing away what the assistant has just scanned.
+  Future<void> recallHeldBill(int id) async {
+    final held = heldBills.where((b) => b.id == id).firstOrNull;
+    if (held == null) throw StateError('That held bill is no longer there.');
+
+    for (final line in held.lines) {
+      final product = products.where((p) => p.id == line.productId).firstOrNull;
+      // A product deleted while the bill was parked is skipped rather than
+      // taking the whole recall down.
+      if (product == null) continue;
+      final existing = cart
+          .where((c) => c.product.id == product.id)
+          .firstOrNull;
+      if (existing == null) {
+        cart.add(
+          CartLine(
+            product: product,
+            quantity: line.quantity,
+            discount: line.discount,
+          ),
+        );
+      } else {
+        existing.quantity += line.quantity;
+        existing.discount += line.discount;
+      }
+    }
+
+    await (_db.delete(_db.heldBills)..where((b) => b.id.equals(id))).go();
+    await _audit('DELETE', 'held_bills', id, 'Recalled "${held.label}"');
+    await refresh();
+  }
+
+  /// Throws a held bill away without selling it.
+  Future<void> discardHeldBill(int id) async {
+    final held = heldBills.where((b) => b.id == id).firstOrNull;
+    await (_db.delete(_db.heldBills)..where((b) => b.id.equals(id))).go();
+    await _audit(
+      'DELETE',
+      'held_bills',
+      id,
+      'Discarded "${held?.label ?? id}"',
+    );
+    await refresh();
+  }
+
+  Future<void> _loadHeldBills() async {
+    final rows = await (_db.select(
+      _db.heldBills,
+    )..orderBy([(b) => OrderingTerm.desc(b.heldAt)])).get();
+    final items = await _db.select(_db.heldBillItems).get();
+    final byProduct = {for (final p in products) p.id: p};
+    final customerNames = {for (final c in customers) c.id: c.name};
+
+    heldBills
+      ..clear()
+      ..addAll(
+        rows.map((row) {
+          final lines = items
+              .where((i) => i.heldBillId == row.id)
+              .map(
+                (i) => HeldBillLine(
+                  productId: i.productId,
+                  description:
+                      byProduct[i.productId]?.displayName ?? 'Removed product',
+                  quantity: i.quantity,
+                  discount: i.discount,
+                  unitPrice: byProduct[i.productId]?.sellingPrice ?? 0,
+                ),
+              )
+              .toList();
+          return HeldBillRecord(
+            id: row.id,
+            label: row.label,
+            customerName: customerNames[row.customerId],
+            heldAt: row.heldAt,
+            lines: lines,
+          );
+        }),
+      );
+  }
 
   // ---------------------------------------------------------- stock counts
 

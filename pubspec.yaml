@@ -52,3 +52,29 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    - assets/brand/
+
+  # Bundled rather than fetched: the shop has no internet, and a font that
+  # silently fell back would take the rupee sign with it. These are the
+  # latin-ext cuts precisely because the latin cut has no U+20B9.
+  fonts:
+    - family: IBMPlexSans
+      fonts:
+        - asset: assets/fonts/IBMPlexSans-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/IBMPlexSans-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/IBMPlexSans-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/IBMPlexSans-Bold.ttf
+          weight: 700
+    - family: IBMPlexMono
+      fonts:
+        - asset: assets/fonts/IBMPlexMono-Medium.ttf
+          weight: 500
+    - family: CormorantGaramond
+      fonts:
+        - asset: assets/fonts/CormorantGaramond-Bold.ttf
+          weight: 700
