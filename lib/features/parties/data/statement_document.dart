@@ -74,7 +74,7 @@ pw.Widget _header(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
           pw.Text(
-            profile?.storeName ?? 'RetailPro',
+            profile?.storeName ?? 'Classy Closet',
             style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
           ),
           if ((profile?.address ?? '').isNotEmpty)

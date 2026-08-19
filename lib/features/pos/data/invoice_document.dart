@@ -139,7 +139,7 @@ List<pw.Widget> _rollBody(
       ),
     pw.Center(
       child: pw.Text(
-        profile?.storeName ?? 'RetailPro',
+        profile?.storeName ?? 'Classy Closet',
         style: pw.TextStyle(fontSize: base + 3, fontWeight: pw.FontWeight.bold),
         textAlign: pw.TextAlign.center,
       ),
@@ -350,7 +350,7 @@ List<pw.Widget> _sheetBody(InvoiceData data, pw.MemoryImage? logo) {
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Text(
-                profile?.storeName ?? 'RetailPro',
+                profile?.storeName ?? 'Classy Closet',
                 style: pw.TextStyle(
                   fontSize: 17,
                   fontWeight: pw.FontWeight.bold,

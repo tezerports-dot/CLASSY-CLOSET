@@ -65,5 +65,5 @@ jobs:
       - name: Upload the installer
         uses: actions/upload-artifact@v4
         with:
-          name: RetailProSetup
-          path: installer/RetailProSetup.exe
+          name: ClassyClosetSetup
+          path: installer/ClassyClosetSetup.exe

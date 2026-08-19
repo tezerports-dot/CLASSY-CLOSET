@@ -1,7 +1,7 @@
-; Inno Setup script for RetailPro
+; Inno Setup script for Classy Closet
 ; Build with: iscc installer.iss
 
-#define AppName        "RetailPro"
+#define AppName        "Classy Closet"
 #define AppVersion     "1.0.0"
 #define AppPublisher   "Classy Closet"
 #define AppExeName     "classy_closet.exe"
@@ -14,7 +14,7 @@ AppPublisher={#AppPublisher}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 OutputDir=installer
-OutputBaseFilename=RetailProSetup
+OutputBaseFilename=ClassyClosetSetup
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
@@ -28,7 +28,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
-Name: "startupicon"; Description: "Start RetailPro when Windows starts"; GroupDescription: "Shortcuts:"; Flags: unchecked
+Name: "startupicon"; Description: "Start Classy Closet when Windows starts"; GroupDescription: "Shortcuts:"; Flags: unchecked
 
 [Files]
 Source: "{#BuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -40,7 +40,7 @@ Name: "{autodesktop}\{#AppName}";    Filename: "{app}\{#AppExeName}"; Tasks: des
 Name: "{userstartup}\{#AppName}";    Filename: "{app}\{#AppExeName}"; Tasks: startupicon
 
 [Run]
-Filename: "{app}\{#AppExeName}"; Description: "Open RetailPro now"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExeName}"; Description: "Open Classy Closet now"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

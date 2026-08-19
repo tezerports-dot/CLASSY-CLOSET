@@ -7,8 +7,9 @@ import 'package:flutter/material.dart';
 import '../../../app/di/injection.dart';
 import '../../../core/services/reports.dart';
 import '../../../core/services/retail_store.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
-import '../../../core/widgets/section_card.dart';
+import '../../../core/widgets/ui_kit.dart';
 
 /// Everything the owner and the accountant need out of the till.
 class ReportsPage extends StatefulWidget {
@@ -49,22 +50,25 @@ class _ReportsPageState extends State<ReportsPage> {
   Widget build(BuildContext context) {
     final bundle = _bundle;
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(AppSpacing.xxl),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          PageHeader(
+            title: 'Reports',
+            subtitle:
+                'Everything the owner and the accountant need out of the '
+                'till — ${_range.label.toLowerCase()}.',
+          ),
           _rangeBar(context),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.xl),
           if (_loading || bundle == null)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 64),
-              child: Center(child: CircularProgressIndicator()),
-            )
+            const SectionCard(child: SkeletonRows(rows: 4, height: 76))
           else ...[
             _headline(context, bundle),
-            const SizedBox(height: 16),
-            _tabs(context),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpacing.xl),
+            Align(alignment: Alignment.centerLeft, child: _tabs(context)),
+            const SizedBox(height: AppSpacing.xl),
             switch (_tab) {
               0 => _registerCard(context, bundle),
               1 => _gstCard(context, bundle),
@@ -79,8 +83,8 @@ class _ReportsPageState extends State<ReportsPage> {
   }
 
   Widget _rangeBar(BuildContext context) => Wrap(
-    spacing: 8,
-    runSpacing: 8,
+    spacing: AppSpacing.sm,
+    runSpacing: AppSpacing.sm,
     crossAxisAlignment: WrapCrossAlignment.center,
     children: [
       for (final preset in [
@@ -93,107 +97,124 @@ class _ReportsPageState extends State<ReportsPage> {
         ChoiceChip(
           label: Text(preset.label),
           selected: _range.label == preset.label,
+          showCheckmark: false,
+          selectedColor: AppColors.brand,
+          labelStyle: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: _range.label == preset.label
+                ? AppColors.brandInk
+                : AppColors.inkSoft,
+          ),
           onSelected: (_) {
             setState(() => _range = preset);
             _load();
           },
         ),
-      OutlinedButton.icon(
+      SecondaryButton(
+        icon: Icons.date_range_rounded,
+        label: _range.label == 'Custom'
+            ? '${AppFormatters.date(_range.from)} – '
+                  '${AppFormatters.date(_range.to.subtract(const Duration(days: 1)))}'
+            : 'Choose dates',
         onPressed: _pickCustom,
-        icon: const Icon(Icons.date_range),
-        label: Text(
-          _range.label == 'Custom'
-              ? '${AppFormatters.date(_range.from)} – '
-                    '${AppFormatters.date(_range.to.subtract(const Duration(days: 1)))}'
-              : 'Choose dates',
-        ),
       ),
     ],
   );
 
   Widget _headline(BuildContext context, ReportBundle b) {
-    final theme = Theme.of(context);
+    final netProfit = b.grossProfit - _expenses;
     return Wrap(
-      spacing: 16,
-      runSpacing: 16,
+      spacing: AppSpacing.xl,
+      runSpacing: AppSpacing.xl,
       children: [
-        _stat(theme, 'Bills', '${b.billCount}'),
-        _stat(theme, 'Gross sales', AppFormatters.currency(b.grossSales)),
+        _stat('Bills', '${b.billCount}', icon: Icons.receipt_long_outlined),
         _stat(
-          theme,
-          'Returns',
-          '-${AppFormatters.currency(b.returnsTotal)}',
-          hint: '${b.returnCount} credit note(s)',
+          'Gross sales',
+          AppFormatters.currency(b.grossSales),
+          icon: Icons.trending_up_rounded,
         ),
         _stat(
-          theme,
+          'Returns',
+          '-${AppFormatters.currency(b.returnsTotal)}',
+          hint:
+              '${b.returnCount} credit note'
+              '${b.returnCount == 1 ? '' : 's'}',
+          icon: Icons.assignment_return_outlined,
+          tone: b.returnsTotal > 0 ? AppColors.danger : null,
+        ),
+        _stat(
           'Net sales',
           AppFormatters.currency(b.netSales),
           strong: true,
+          icon: Icons.point_of_sale_outlined,
         ),
         _stat(
-          theme,
           'Gross profit',
           AppFormatters.currency(b.grossProfit),
           hint: '${b.marginPercent.toStringAsFixed(1)}% margin',
+          icon: Icons.savings_outlined,
         ),
         _stat(
-          theme,
           'Expenses',
           '-${AppFormatters.currency(_expenses)}',
           hint: 'rent, wages, and so on',
+          icon: Icons.payments_outlined,
+          tone: _expenses > 0 ? AppColors.danger : null,
         ),
         // The figure that actually answers "was this month worth it".
         _stat(
-          theme,
           'Net profit',
-          AppFormatters.currency(b.grossProfit - _expenses),
+          AppFormatters.currency(netProfit),
           strong: true,
+          icon: Icons.account_balance_outlined,
+          tone: netProfit < 0 ? AppColors.danger : AppColors.success,
         ),
         _stat(
-          theme,
           'GST payable',
           AppFormatters.currency(b.netTax),
           hint: 'after returns',
+          icon: Icons.receipt_outlined,
         ),
-        _stat(theme, 'Cash', AppFormatters.currency(b.cashTotal)),
-        _stat(theme, 'Card', AppFormatters.currency(b.cardTotal)),
-        _stat(theme, 'UPI', AppFormatters.currency(b.upiTotal)),
-        _stat(theme, 'Average bill', AppFormatters.currency(b.averageBill)),
+        _stat(
+          'Cash',
+          AppFormatters.currency(b.cashTotal),
+          icon: Icons.payments_outlined,
+        ),
+        _stat(
+          'Card',
+          AppFormatters.currency(b.cardTotal),
+          icon: Icons.credit_card_outlined,
+        ),
+        _stat(
+          'UPI',
+          AppFormatters.currency(b.upiTotal),
+          icon: Icons.qr_code_2_rounded,
+        ),
+        _stat(
+          'Average bill',
+          AppFormatters.currency(b.averageBill),
+          icon: Icons.equalizer_rounded,
+        ),
       ],
     );
   }
 
   Widget _stat(
-    ThemeData theme,
     String label,
     String value, {
     String? hint,
     bool strong = false,
+    IconData? icon,
+    Color? tone,
   }) => SizedBox(
-    width: 190,
-    child: Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: theme.textTheme.labelLarge),
-            const SizedBox(height: 8),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                value,
-                style: strong
-                    ? theme.textTheme.headlineSmall
-                    : theme.textTheme.titleLarge,
-              ),
-            ),
-            if (hint != null) Text(hint, style: theme.textTheme.bodySmall),
-          ],
-        ),
-      ),
+    width: 196,
+    child: KpiCard(
+      label: label,
+      value: value,
+      caption: hint,
+      icon: icon,
+      tone: tone ?? (strong ? AppColors.goldDeep : null),
     ),
   );
 
@@ -206,192 +227,230 @@ class _ReportsPageState extends State<ReportsPage> {
       ButtonSegment(value: 4, label: Text('Dead stock')),
     ],
     selected: {_tab},
+    showSelectedIcon: false,
     onSelectionChanged: (s) => setState(() => _tab = s.single),
   );
 
   Widget _registerCard(BuildContext context, ReportBundle b) => SectionCard(
     title: 'Sales register — ${b.range.label}',
     actions: [_exportButton('sales-register', () => _registerCsv(b))],
-    child: b.register.isEmpty
-        ? const Text('No bills in this period.')
-        : _scrollTable(
-            const [
-              'Bill',
-              'Date',
-              'Customer',
-              'GSTIN',
-              'Taxable',
-              'CGST',
-              'SGST',
-              'IGST',
-              'Total',
-              'Paid by',
-              'Sold by',
-            ],
-            [
-              for (final r in b.register)
-                [
-                  r.receiptNumber,
-                  AppFormatters.dateTime(r.soldAt),
-                  r.customerName,
-                  r.customerGstin ?? '—',
-                  AppFormatters.currency(r.taxableValue),
-                  AppFormatters.currency(r.cgst),
-                  AppFormatters.currency(r.sgst),
-                  AppFormatters.currency(r.igst),
-                  AppFormatters.currency(r.grandTotal),
-                  r.paymentMethod,
-                  r.soldBy,
-                ],
-            ],
-          ),
+    child: _scrollTable(
+      const [
+        'Bill',
+        'Date',
+        'Customer',
+        'GSTIN',
+        'Taxable',
+        'CGST',
+        'SGST',
+        'IGST',
+        'Total',
+        'Paid by',
+        'Sold by',
+      ],
+      [
+        for (final r in b.register)
+          [
+            r.receiptNumber,
+            AppFormatters.dateTime(r.soldAt),
+            r.customerName,
+            r.customerGstin ?? '—',
+            AppFormatters.currency(r.taxableValue),
+            AppFormatters.currency(r.cgst),
+            AppFormatters.currency(r.sgst),
+            AppFormatters.currency(r.igst),
+            AppFormatters.currency(r.grandTotal),
+            r.paymentMethod,
+            r.soldBy,
+          ],
+      ],
+      empty: EmptyState(
+        icon: Icons.receipt_long_outlined,
+        title: 'No bills in ${b.range.label.toLowerCase()}',
+        message:
+            'Pick a wider date range above, or ring a sale up at the counter.',
+      ),
+    ),
   );
 
   Widget _gstCard(BuildContext context, ReportBundle b) => SectionCard(
     title: 'GST by rate — ${b.range.label}',
     actions: [_exportButton('gst-summary', () => _gstCsv(b))],
-    child: b.gstByRate.isEmpty
-        ? const Text('No taxable sales in this period.')
-        : Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Give this to your accountant for the GST return. Figures are '
-                'before returns; the credit notes are listed separately.',
-                style: TextStyle(fontSize: 12.5),
-              ),
-              const SizedBox(height: 12),
-              _scrollTable(
-                const [
-                  'Rate',
-                  'Lines',
-                  'Taxable value',
-                  'CGST',
-                  'SGST',
-                  'IGST',
-                  'Total tax',
-                  'Invoice value',
-                ],
-                [
-                  for (final g in b.gstByRate)
-                    [
-                      '${g.ratePercent.toStringAsFixed(0)}%',
-                      '${g.lineCount}',
-                      AppFormatters.currency(g.taxableValue),
-                      AppFormatters.currency(g.cgst),
-                      AppFormatters.currency(g.sgst),
-                      AppFormatters.currency(g.igst),
-                      AppFormatters.currency(g.taxTotal),
-                      AppFormatters.currency(g.total),
-                    ],
-                ],
-              ),
-            ],
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (b.gstByRate.isNotEmpty) ...[
+          const Text(
+            'Give this to your accountant for the GST return. Figures '
+            'are before returns; the credit notes are listed separately.',
+            style: TextStyle(fontSize: 12.5, color: AppColors.inkFaint),
           ),
+          const SizedBox(height: AppSpacing.base),
+        ],
+        _scrollTable(
+          const [
+            'Rate',
+            'Lines',
+            'Taxable value',
+            'CGST',
+            'SGST',
+            'IGST',
+            'Total tax',
+            'Invoice value',
+          ],
+          [
+            for (final g in b.gstByRate)
+              [
+                '${g.ratePercent.toStringAsFixed(0)}%',
+                '${g.lineCount}',
+                AppFormatters.currency(g.taxableValue),
+                AppFormatters.currency(g.cgst),
+                AppFormatters.currency(g.sgst),
+                AppFormatters.currency(g.igst),
+                AppFormatters.currency(g.taxTotal),
+                AppFormatters.currency(g.total),
+              ],
+          ],
+          empty: EmptyState(
+            icon: Icons.percent_rounded,
+            title: 'No taxable sales in ${b.range.label.toLowerCase()}',
+            message:
+                'Once bills carry GST, this is the sheet the accountant '
+                'files the return from.',
+          ),
+        ),
+      ],
+    ),
   );
 
   Widget _hsnCard(BuildContext context, ReportBundle b) => SectionCard(
     title: 'HSN summary — ${b.range.label}',
     actions: [_exportButton('hsn-summary', () => _hsnCsv(b))],
-    child: b.hsn.isEmpty
-        ? const Text('Nothing sold in this period.')
-        : _scrollTable(
-            const [
-              'HSN',
-              'Description',
-              'Quantity',
-              'Taxable value',
-              'Tax',
-              'Total',
-            ],
-            [
-              for (final h in b.hsn)
-                [
-                  h.hsnCode,
-                  h.description,
-                  AppFormatters.quantity(h.quantity),
-                  AppFormatters.currency(h.taxableValue),
-                  AppFormatters.currency(h.taxAmount),
-                  AppFormatters.currency(h.total),
-                ],
-            ],
-          ),
+    child: _scrollTable(
+      const ['HSN', 'Description', 'Quantity', 'Taxable value', 'Tax', 'Total'],
+      [
+        for (final h in b.hsn)
+          [
+            h.hsnCode,
+            h.description,
+            AppFormatters.quantity(h.quantity),
+            AppFormatters.currency(h.taxableValue),
+            AppFormatters.currency(h.taxAmount),
+            AppFormatters.currency(h.total),
+          ],
+      ],
+      empty: EmptyState(
+        icon: Icons.inventory_2_outlined,
+        title: 'Nothing sold in ${b.range.label.toLowerCase()}',
+        message:
+            'The HSN summary groups what was sold by tax code, for the GSTR '
+            'filing.',
+      ),
+    ),
   );
 
   Widget _productCard(BuildContext context, ReportBundle b) => SectionCard(
     title: 'Best sellers — ${b.range.label}',
     actions: [_exportButton('best-sellers', () => _productCsv(b))],
-    child: b.topSellers.isEmpty
-        ? const Text('Nothing sold in this period.')
-        : _scrollTable(
-            const [
-              'Item',
-              'Sold',
-              'Revenue',
-              'Profit',
-              'Margin',
-              'Still in stock',
-            ],
-            [
-              for (final p in b.topSellers.take(50))
-                [
-                  p.description,
-                  AppFormatters.quantity(p.quantitySold),
-                  AppFormatters.currency(p.revenue),
-                  AppFormatters.currency(p.profit),
-                  '${p.marginPercent.toStringAsFixed(1)}%',
-                  AppFormatters.quantity(p.stockOnHand),
-                ],
-            ],
-          ),
+    child: _scrollTable(
+      const ['Item', 'Sold', 'Revenue', 'Profit', 'Margin', 'Still in stock'],
+      [
+        for (final p in b.topSellers.take(50))
+          [
+            p.description,
+            AppFormatters.quantity(p.quantitySold),
+            AppFormatters.currency(p.revenue),
+            AppFormatters.currency(p.profit),
+            '${p.marginPercent.toStringAsFixed(1)}%',
+            AppFormatters.quantity(p.stockOnHand),
+          ],
+      ],
+      empty: EmptyState(
+        icon: Icons.star_outline_rounded,
+        title: 'Nothing sold in ${b.range.label.toLowerCase()}',
+        message:
+            'This ranks what actually moved, with the profit each design '
+            'earned — the list worth reordering from.',
+      ),
+    ),
   );
 
   Widget _deadStockCard(BuildContext context, ReportBundle b) => SectionCard(
     title: 'Dead stock — nothing sold in ${b.range.label.toLowerCase()}',
     actions: [_exportButton('dead-stock', () => _deadStockCsv(b))],
-    child: b.deadStock.isEmpty
-        ? const Text('Everything in stock sold at least once. Good period.')
-        : Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${b.deadStock.length} item(s) sitting on the rail. '
-                'Consider marking these down.',
-                style: const TextStyle(fontSize: 12.5),
-              ),
-              const SizedBox(height: 12),
-              _scrollTable(
-                const ['Item', 'In stock'],
-                [
-                  for (final p in b.deadStock.take(100))
-                    [p.description, AppFormatters.quantity(p.stockOnHand)],
-                ],
-              ),
-            ],
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (b.deadStock.isNotEmpty) ...[
+          Text(
+            '${b.deadStock.length} item'
+            '${b.deadStock.length == 1 ? '' : 's'} sitting on the rail. '
+            'Consider marking these down.',
+            style: const TextStyle(fontSize: 12.5, color: AppColors.inkFaint),
           ),
-  );
-
-  Widget _scrollTable(List<String> headers, List<List<String>> rows) =>
-      SizedBox(
-        width: double.infinity,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
-            columns: [for (final h in headers) DataColumn(label: Text(h))],
-            rows: [
-              for (final row in rows)
-                DataRow(cells: [for (final cell in row) DataCell(Text(cell))]),
-            ],
+          const SizedBox(height: AppSpacing.base),
+        ],
+        _scrollTable(
+          const ['Item', 'In stock'],
+          [
+            for (final p in b.deadStock.take(100))
+              [p.description, AppFormatters.quantity(p.stockOnHand)],
+          ],
+          empty: const EmptyState(
+            icon: Icons.check_circle_outline_rounded,
+            title: 'Nothing is sitting still',
+            message:
+                'Everything in stock sold at least once in this period. '
+                'Good period.',
           ),
         ),
-      );
+      ],
+    ),
+  );
 
-  Widget _exportButton(String name, String Function() build) =>
-      OutlinedButton.icon(
-        onPressed: () => _export(name, build()),
-        icon: const Icon(Icons.download),
-        label: const Text('Export CSV'),
-      );
+  Widget _scrollTable(
+    List<String> headers,
+    List<List<String>> rows, {
+    Widget? empty,
+  }) => AppTable(
+    minWidth: 120.0 * headers.length,
+    empty: empty,
+    columns: [
+      for (final h in headers)
+        DataColumn(label: Text(h.toUpperCase()), numeric: _isNumeric(h)),
+    ],
+    rows: [
+      for (final row in rows)
+        DataRow(cells: [for (final cell in row) DataCell(Text(cell))]),
+    ],
+  );
+
+  /// Money and count columns are right-aligned so the digits line up.
+  static bool _isNumeric(String header) => const {
+    'Lines',
+    'Sold',
+    'Quantity',
+    'In stock',
+    'Still in stock',
+    'Margin',
+    'Taxable',
+    'Taxable value',
+    'CGST',
+    'SGST',
+    'IGST',
+    'Total tax',
+    'Invoice value',
+    'Tax',
+    'Total',
+    'Revenue',
+    'Profit',
+  }.contains(header);
+
+  Widget _exportButton(String name, String Function() build) => SecondaryButton(
+    label: 'Export CSV',
+    icon: Icons.download_rounded,
+    onPressed: () => _export(name, build()),
+  );
 
   // ---------------------------------------------------------------- exports
 

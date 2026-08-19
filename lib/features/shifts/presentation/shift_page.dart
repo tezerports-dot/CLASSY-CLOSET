@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../app/di/injection.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/services/returns_and_shifts.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
-import '../../../core/widgets/section_card.dart';
+import '../../../core/widgets/ui_kit.dart';
 
 /// Opening and closing the till, and counting the drawer against it.
 ///
@@ -56,77 +58,74 @@ class _ShiftPageState extends State<ShiftPage> {
       builder: (context, _) {
         final open = _store.openShift;
         return SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(AppSpacing.xxl),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              PageHeader(
+                title: 'Till',
+                subtitle:
+                    'Opening and closing the drawer, and counting it against '
+                    'what the day says should be there.',
+                actions: [
+                  StatusPill(
+                    open == null ? 'Till closed' : 'Till open',
+                    tone: open == null ? PillTone.neutral : PillTone.good,
+                  ),
+                ],
+              ),
               if (open == null) _openCard() else _runningCard(context),
-              const SizedBox(height: 16),
+              const SizedBox(height: AppSpacing.xl),
               SectionCard(
                 title: 'Past sessions',
-                child: _store.shifts.where((s) => !s.isOpen).isEmpty
-                    ? const Text('No till sessions have been closed yet.')
-                    : SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: DataTable(
-                          columns: const [
-                            DataColumn(label: Text('Who')),
-                            DataColumn(label: Text('Opened')),
-                            DataColumn(label: Text('Closed')),
-                            DataColumn(label: Text('Bills')),
-                            DataColumn(label: Text('Cash')),
-                            DataColumn(label: Text('Card')),
-                            DataColumn(label: Text('UPI')),
-                            DataColumn(label: Text('Expected')),
-                            DataColumn(label: Text('Counted')),
-                            DataColumn(label: Text('Difference')),
-                          ],
-                          rows: [
-                            for (final s in _store.shifts.where(
-                              (s) => !s.isOpen,
-                            ))
-                              DataRow(
-                                cells: [
-                                  DataCell(Text(s.userName)),
-                                  DataCell(
-                                    Text(AppFormatters.dateTime(s.openedAt)),
-                                  ),
-                                  DataCell(
-                                    Text(
-                                      s.closedAt == null
-                                          ? '—'
-                                          : AppFormatters.dateTime(s.closedAt!),
-                                    ),
-                                  ),
-                                  DataCell(Text('${s.saleCount}')),
-                                  DataCell(
-                                    Text(AppFormatters.currency(s.cashSales)),
-                                  ),
-                                  DataCell(
-                                    Text(AppFormatters.currency(s.cardSales)),
-                                  ),
-                                  DataCell(
-                                    Text(AppFormatters.currency(s.upiSales)),
-                                  ),
-                                  DataCell(
-                                    Text(
-                                      AppFormatters.currency(
-                                        s.expectedCash ?? 0,
-                                      ),
-                                    ),
-                                  ),
-                                  DataCell(
-                                    Text(
-                                      AppFormatters.currency(
-                                        s.closingCount ?? 0,
-                                      ),
-                                    ),
-                                  ),
-                                  DataCell(_variance(context, s.variance)),
-                                ],
-                              ),
-                          ],
-                        ),
+                subtitle:
+                    'A closed session is the record that makes a shortfall '
+                    'attributable, so it cannot be edited afterwards.',
+                child: AppTable(
+                  minWidth: 1080,
+                  empty: const EmptyState(
+                    icon: Icons.point_of_sale_outlined,
+                    title: 'No sessions closed yet',
+                    message:
+                        'Open the till at the start of the day and close it at '
+                        'the end, and each day appears here with its count.',
+                  ),
+                  columns: const [
+                    DataColumn(label: Text('WHO')),
+                    DataColumn(label: Text('OPENED')),
+                    DataColumn(label: Text('CLOSED')),
+                    DataColumn(label: Text('BILLS'), numeric: true),
+                    DataColumn(label: Text('CASH'), numeric: true),
+                    DataColumn(label: Text('CARD'), numeric: true),
+                    DataColumn(label: Text('UPI'), numeric: true),
+                    DataColumn(label: Text('EXPECTED'), numeric: true),
+                    DataColumn(label: Text('COUNTED'), numeric: true),
+                    DataColumn(label: Text('DIFFERENCE'), numeric: true),
+                  ],
+                  rows: [
+                    for (final s in _store.shifts.where((s) => !s.isOpen))
+                      DataRow(
+                        cells: [
+                          DataCell(Text(s.userName)),
+                          DataCell(Text(AppFormatters.dateTime(s.openedAt))),
+                          DataCell(
+                            Text(
+                              s.closedAt == null
+                                  ? '—'
+                                  : AppFormatters.dateTime(s.closedAt!),
+                            ),
+                          ),
+                          DataCell(Text('${s.saleCount}')),
+                          DataCell(MoneyText(s.cashSales, size: 13)),
+                          DataCell(MoneyText(s.cardSales, size: 13)),
+                          DataCell(MoneyText(s.upiSales, size: 13)),
+                          DataCell(MoneyText(s.expectedCash ?? 0, size: 13)),
+                          DataCell(MoneyText(s.closingCount ?? 0, size: 13)),
+                          DataCell(_variance(context, s.variance)),
+                        ],
                       ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -137,50 +136,46 @@ class _ShiftPageState extends State<ShiftPage> {
 
   Widget _variance(BuildContext context, double? variance) {
     if (variance == null) return const Text('—');
-    final theme = Theme.of(context);
     // A shortfall is the one worth spotting across a crowded table.
-    final colour = variance.abs() < 0.01
-        ? null
-        : (variance < 0 ? theme.colorScheme.error : theme.colorScheme.primary);
-    return Text(
-      AppFormatters.currency(variance),
-      style: TextStyle(color: colour, fontWeight: FontWeight.w600),
+    if (variance.abs() < 0.01) {
+      return const StatusPill('Balanced', tone: PillTone.good);
+    }
+    return MoneyText(
+      variance,
+      size: 13,
+      weight: FontWeight.w600,
+      tone: variance < 0 ? AppColors.danger : AppColors.goldDeep,
     );
   }
 
   Widget _openCard() => SectionCard(
     title: 'Start the till',
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    subtitle:
+        'Count the cash you are putting in the drawer and enter it as the '
+        'opening float. Everything sold from now on is recorded against this '
+        'session.',
+    child: Row(
       children: [
-        const Text(
-          'Count the cash you are putting in the drawer and enter it as the '
-          'opening float. Everything sold from now on is recorded against this '
-          'session.',
+        SizedBox(
+          width: 220,
+          child: TextField(
+            controller: _float,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              labelText: 'Opening float',
+              prefixText: '${AppFormatters.symbol} ',
+            ),
+            onSubmitted: (_) => _start(),
+          ),
         ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            SizedBox(
-              width: 220,
-              child: TextField(
-                controller: _float,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: InputDecoration(
-                  labelText: 'Opening float',
-                  prefixText: '${AppFormatters.symbol} ',
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            FilledButton.icon(
-              onPressed: _busy ? null : _start,
-              icon: const Icon(Icons.play_arrow),
-              label: const Text('Open till'),
-            ),
-          ],
+        const SizedBox(width: AppSpacing.xl),
+        AccentButton(
+          label: 'Open till',
+          icon: Icons.play_arrow_rounded,
+          tall: true,
+          busy: _busy,
+          onPressed: _start,
         ),
       ],
     ),
@@ -195,27 +190,23 @@ class _ShiftPageState extends State<ShiftPage> {
 
     return SectionCard(
       title: 'Till is open',
+      subtitle:
+          'Opened by ${live?.userName ?? '—'} at '
+          '${live == null ? '—' : AppFormatters.dateTime(live.openedAt)}',
       actions: [
         TextButton.icon(
           onPressed: _refreshLive,
-          icon: const Icon(Icons.refresh),
+          icon: const Icon(Icons.refresh_rounded, size: 16),
           label: const Text('Refresh'),
         ),
       ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Opened by ${live?.userName ?? '—'} at '
-            '${live == null ? '—' : AppFormatters.dateTime(live.openedAt)}',
-            style: theme.textTheme.bodySmall,
-          ),
-          const SizedBox(height: 16),
-
           // The X report: where the session stands right now, without closing.
           Wrap(
-            spacing: 28,
-            runSpacing: 12,
+            spacing: 32,
+            runSpacing: AppSpacing.base,
             children: [
               _stat('Bills', '${live?.saleCount ?? 0}'),
               _stat('Opening float', live?.openingFloat ?? 0),
@@ -232,15 +223,17 @@ class _ShiftPageState extends State<ShiftPage> {
 
           Text(
             'Money in or out of the drawer',
-            style: theme.textTheme.titleSmall,
+            style: theme.textTheme.titleLarge,
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           Text(
             'Use this for anything that is not a sale — paying a delivery in '
             'cash, or taking change from the bank.',
-            style: theme.textTheme.bodySmall,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: AppColors.inkFaint,
+            ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: AppSpacing.base),
           Row(
             children: [
               SizedBox(
@@ -263,30 +256,32 @@ class _ShiftPageState extends State<ShiftPage> {
                   decoration: const InputDecoration(labelText: 'Reason'),
                 ),
               ),
-              const SizedBox(width: 12),
-              OutlinedButton.icon(
+              const SizedBox(width: AppSpacing.base),
+              SecondaryButton(
+                label: 'Paid in',
+                icon: Icons.arrow_downward_rounded,
                 onPressed: _busy ? null : () => _move(true),
-                icon: const Icon(Icons.arrow_downward),
-                label: const Text('Paid in'),
               ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
+              const SizedBox(width: AppSpacing.sm),
+              SecondaryButton(
+                label: 'Paid out',
+                icon: Icons.arrow_upward_rounded,
                 onPressed: _busy ? null : () => _move(false),
-                icon: const Icon(Icons.arrow_upward),
-                label: const Text('Paid out'),
               ),
             ],
           ),
           const Divider(height: 32),
 
-          Text('Close the till', style: theme.textTheme.titleSmall),
-          const SizedBox(height: 4),
+          Text('Close the till', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 3),
           Text(
             'Count the cash in the drawer and enter the total. The difference '
             'is recorded against this session and cannot be edited afterwards.',
-            style: theme.textTheme.bodySmall,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: AppColors.inkFaint,
+            ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.base),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -316,28 +311,64 @@ class _ShiftPageState extends State<ShiftPage> {
             ],
           ),
           if (difference != null) ...[
-            const SizedBox(height: 12),
-            Text(
-              difference.abs() < 0.01
-                  ? 'The drawer balances exactly.'
-                  : difference < 0
-                  ? 'Short by ${AppFormatters.currency(difference.abs())}.'
-                  : 'Over by ${AppFormatters.currency(difference)}.',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
+            const SizedBox(height: AppSpacing.base),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.base,
+                vertical: AppSpacing.md,
+              ),
+              decoration: BoxDecoration(
                 color: difference.abs() < 0.01
-                    ? theme.colorScheme.primary
+                    ? AppColors.successWash
                     : difference < 0
-                    ? theme.colorScheme.error
-                    : null,
+                    ? AppColors.dangerWash
+                    : AppColors.goldWash,
+                borderRadius: AppRadii.inputBorder,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    difference.abs() < 0.01
+                        ? Icons.check_circle_outline_rounded
+                        : Icons.error_outline_rounded,
+                    size: 16,
+                    color: difference.abs() < 0.01
+                        ? AppColors.success
+                        : difference < 0
+                        ? AppColors.danger
+                        : AppColors.goldDeep,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    difference.abs() < 0.01
+                        ? 'The drawer balances exactly.'
+                        : difference < 0
+                        ? 'Short by ${AppFormatters.currency(difference.abs())}.'
+                        : 'Over by ${AppFormatters.currency(difference)}.',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12.5,
+                      color: difference.abs() < 0.01
+                          ? AppColors.success
+                          : difference < 0
+                          ? AppColors.danger
+                          : AppColors.goldDeep,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: _busy || counted == null ? null : _close,
-            icon: const Icon(Icons.lock),
-            label: const Text('Close till and record the count'),
+          const SizedBox(height: AppSpacing.xl),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: AccentButton(
+              label: 'Close till and record the count',
+              icon: Icons.lock_outline_rounded,
+              tall: true,
+              busy: _busy,
+              onPressed: counted == null ? null : _close,
+            ),
           ),
         ],
       ),
@@ -348,14 +379,28 @@ class _ShiftPageState extends State<ShiftPage> {
     crossAxisAlignment: CrossAxisAlignment.start,
     mainAxisSize: MainAxisSize.min,
     children: [
-      Text(label, style: const TextStyle(fontSize: 11.5)),
       Text(
-        value is num ? AppFormatters.currency(value) : value.toString(),
-        style: TextStyle(
-          fontSize: strong ? 20 : 16,
-          fontWeight: strong ? FontWeight.bold : FontWeight.w600,
+        label.toUpperCase(),
+        style: AppTypography.microLabel.copyWith(
+          color: strong ? AppColors.goldDeep : AppColors.inkFaint,
         ),
       ),
+      const SizedBox(height: 2),
+      if (value is num)
+        MoneyText(
+          value.toDouble(),
+          size: strong ? 21 : 15,
+          weight: strong ? FontWeight.w700 : FontWeight.w600,
+          signed: value < 0,
+        )
+      else
+        Text(
+          value.toString(),
+          style: TextStyle(
+            fontSize: strong ? 21 : 15,
+            fontWeight: strong ? FontWeight.w700 : FontWeight.w600,
+          ),
+        ),
     ],
   );
 

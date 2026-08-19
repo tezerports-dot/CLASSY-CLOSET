@@ -1,4 +1,4 @@
-# Setting up RetailPro on the shop computer
+# Setting up Classy Closet on the shop computer
 
 This guide is written for someone who does not write code. Follow it top to
 bottom on the Windows PC that will sit at the counter. Nothing here needs the
@@ -6,7 +6,7 @@ internet once the app is installed.
 
 If you only want to hand a finished installer to the shop, read
 [BUILD_INSTALLER.md](BUILD_INSTALLER.md) instead — that explains how to turn
-this project into a single `RetailProSetup.exe`. This file covers doing it on
+this project into a single `ClassyClosetSetup.exe`. This file covers doing it on
 the shop machine directly.
 
 ---
@@ -83,7 +83,7 @@ so start it and make a cup of tea.
 5. Click **Install**. This takes 20–40 minutes.
 6. Restart the PC when it finishes.
 
-## Step 4 — Download RetailPro
+## Step 4 — Download Classy Closet
 
 1. Open Command Prompt.
 2. Type these lines, pressing Enter after each:
@@ -123,7 +123,7 @@ C:\CLASSY-CLOSET\build\windows\x64\runner\Release\classy_closet.exe
 1. Open that `Release` folder in File Explorer.
 2. Right-click `classy_closet.exe` → **Show more options** → **Send to** →
    **Desktop (create shortcut)**.
-3. Rename the shortcut on the desktop to `RetailPro`.
+3. Rename the shortcut on the desktop to `Classy Closet`.
 
 > Keep the whole `Release` folder together. The `.exe` needs the `.dll` files
 > and the `data` folder next to it. Do not move the `.exe` on its own.
@@ -136,7 +136,7 @@ the shortcut into the folder that opens.
 
 ## Step 7 — First run
 
-Double-click the RetailPro shortcut.
+Double-click the Classy Closet shortcut.
 
 ### 7a. Store setup
 
@@ -229,7 +229,7 @@ Click **Save GST settings**.
 
 Go to **Products** and click **Add design**.
 
-RetailPro is built for clothing, so you enter a **design** once and it creates
+Classy Closet is built for clothing, so you enter a **design** once and it creates
 every size and colour underneath it automatically.
 
 1. **Design code** — your own code, e.g. `KRT-001`.
@@ -337,9 +337,9 @@ ordinary zip — you can open it in Windows Explorer to check it is not empty.
 
 1. Go to **Settings → Backup & restore**.
 2. Click **Restore from a backup** and choose the zip.
-3. The app checks the file really is a RetailPro backup before doing anything.
+3. The app checks the file really is a Classy Closet backup before doing anything.
 4. Confirm. Your current data is copied aside first, so this can be undone.
-5. **Close and reopen RetailPro** to finish.
+5. **Close and reopen Classy Closet** to finish.
 
 > Restoring replaces everything currently in the app. Only do it if the
 > current data is lost or wrong.
@@ -356,7 +356,7 @@ the shop PC without opening any ports on the shop router:
 4. Point the tunnel at the shop PC.
 
 Note this gives you **remote access to the PC**, not a web version of
-RetailPro. The app itself stays on the counter machine, which is what keeps it
+Classy Closet. The app itself stays on the counter machine, which is what keeps it
 working when the internet drops.
 
 ---

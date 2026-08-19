@@ -41,7 +41,7 @@ Uint8List buildThermalReceipt({
       ..feed();
   } else {
     builder.line(
-      profile?.storeName ?? 'RetailPro',
+      profile?.storeName ?? 'Classy Closet',
       bold: true,
       center: true,
       doubleHeight: true,
