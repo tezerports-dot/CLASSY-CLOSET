@@ -119,7 +119,7 @@ class BackupService {
         return const BackupResult(
           success: false,
           message:
-              'That zip does not contain a RetailPro database, so it is not a '
+              'That zip does not contain a Classy Closet database, so it is not a '
               'backup of this app.',
         );
       }
@@ -181,7 +181,7 @@ class BackupService {
       return BackupResult(
         success: true,
         message:
-            'Restored $written file(s). Close and reopen RetailPro to finish. '
+            'Restored \$written file(s). Close and reopen Classy Closet to finish. '
             'Your previous data was kept at ${p.basename(safetyCopy.path)}.',
         path: target.path,
         fileCount: written,

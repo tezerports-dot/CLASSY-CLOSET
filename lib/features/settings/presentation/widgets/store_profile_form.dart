@@ -5,7 +5,10 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/services/gst.dart';
 import '../../../../core/services/retail_store.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_typography.dart';
 import '../../../../core/utils/validators.dart';
+import '../../../../core/widgets/ui_kit.dart';
 
 class StoreProfileForm extends StatefulWidget {
   const StoreProfileForm({
@@ -31,32 +34,43 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
   late final TextEditingController _receiptFooterText;
   late final TextEditingController _receiptNumberPrefix;
   late final TextEditingController _gstin;
+  late final TextEditingController _tagline;
+  late final TextEditingController _termsText;
+  late final TextEditingController _declarationText;
+  late final TextEditingController _bankDetails;
+  late final TextEditingController _jurisdiction;
   String? _logoPath;
   String? _stateCode;
+  bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    final profile = widget.store.storeProfile;
-    _storeName = TextEditingController(text: profile?.storeName ?? '');
-    _address = TextEditingController(text: profile?.address ?? '');
-    _phone = TextEditingController(text: profile?.phone ?? '');
-    _email = TextEditingController(text: profile?.email ?? '');
+    // A shop that has not been set up yet starts from the packaged defaults;
+    // one that has starts from whatever it saved.
+    final profile = widget.store.storeProfile ?? StoreProfile.firstRunDefaults;
+    _storeName = TextEditingController(text: profile.storeName);
+    _address = TextEditingController(text: profile.address ?? '');
+    _phone = TextEditingController(text: profile.phone ?? '');
+    _email = TextEditingController(text: profile.email ?? '');
     _taxRegistrationNumber = TextEditingController(
-      text: profile?.taxRegistrationNumber ?? '',
+      text: profile.taxRegistrationNumber ?? '',
     );
-    _currencySymbol = TextEditingController(
-      text: profile?.currencySymbol ?? '₹',
-    );
-    _gstin = TextEditingController(text: profile?.gstin ?? '');
-    _stateCode = profile?.effectiveStateCode;
+    _currencySymbol = TextEditingController(text: profile.currencySymbol);
+    _gstin = TextEditingController(text: profile.gstin ?? '');
+    _stateCode = profile.effectiveStateCode;
     _receiptFooterText = TextEditingController(
-      text: profile?.receiptFooterText ?? 'Thank you for shopping with us.',
+      text: profile.receiptFooterText ?? '',
     );
     _receiptNumberPrefix = TextEditingController(
-      text: profile?.receiptNumberPrefix ?? '',
+      text: profile.receiptNumberPrefix,
     );
-    _logoPath = profile?.logoPath;
+    _tagline = TextEditingController(text: profile.tagline);
+    _termsText = TextEditingController(text: profile.termsText);
+    _declarationText = TextEditingController(text: profile.declarationText);
+    _bankDetails = TextEditingController(text: profile.bankDetails);
+    _jurisdiction = TextEditingController(text: profile.jurisdiction);
+    _logoPath = profile.logoPath;
   }
 
   @override
@@ -71,6 +85,11 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
       _receiptFooterText,
       _receiptNumberPrefix,
       _gstin,
+      _tagline,
+      _termsText,
+      _declarationText,
+      _bankDetails,
+      _jurisdiction,
     ]) {
       controller.dispose();
     }
@@ -88,20 +107,53 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (logo != null) ...[
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Image.file(
-                logo,
-                width: 96,
-                height: 96,
-                fit: BoxFit.contain,
+          _groupLabel('Who you are'),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // The logo sits beside the name it belongs to rather than
+              // floating above the form.
+              Column(
+                children: [
+                  Container(
+                    width: 92,
+                    height: 92,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceAlt,
+                      borderRadius: AppRadii.inputBorder,
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: logo == null
+                        ? const Icon(
+                            Icons.storefront_outlined,
+                            size: 30,
+                            color: AppColors.border,
+                          )
+                        : Image.file(logo, fit: BoxFit.contain),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextButton(
+                    onPressed: _pickLogo,
+                    child: Text(_logoPath == null ? 'Add logo' : 'Change'),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          _field(_storeName, 'Store name', validator: Validators.requiredText),
-          _field(_address, 'Address', maxLines: 3),
+              const SizedBox(width: AppSpacing.xl),
+              Expanded(
+                child: Column(
+                  children: [
+                    _field(
+                      _storeName,
+                      'Shop name',
+                      validator: Validators.requiredText,
+                    ),
+                    _field(_address, 'Address', maxLines: 3),
+                  ],
+                ),
+              ),
+            ],
+          ),
           Row(
             children: [
               Expanded(child: _field(_phone, 'Phone')),
@@ -127,24 +179,13 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
               ),
             ],
           ),
-          const Divider(height: 28),
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'GST registration',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
+          const Divider(height: 32),
+          _groupLabel(
+            'GST registration',
+            hint:
+                'Enter your GSTIN to print bills as a tax invoice. Leave it '
+                'blank and bills print as a plain receipt instead.',
           ),
-          const SizedBox(height: 4),
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Enter your GSTIN to print bills as a tax invoice. Leave it blank '
-              'and bills print as a plain receipt instead.',
-              style: TextStyle(fontSize: 12.5),
-            ),
-          ),
-          const SizedBox(height: 12),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -196,24 +237,76 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
               ),
             ],
           ),
-          const Divider(height: 28),
-          _field(_receiptNumberPrefix, 'Invoice number prefix (e.g. CC)'),
-          _field(_receiptFooterText, 'Receipt footer text', maxLines: 2),
-          OutlinedButton.icon(
-            onPressed: _pickLogo,
-            icon: const Icon(Icons.image),
-            label: Text(_logoPath == null ? 'Choose logo' : 'Change logo'),
+          const Divider(height: 32),
+          _groupLabel(
+            'What prints on the bill',
+            hint:
+                'The tagline sits under the shop name; the rest print at the '
+                'foot of the bill.',
           ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: _save,
-            icon: const Icon(Icons.save),
-            label: const Text('Save store profile'),
+          _field(_receiptNumberPrefix, 'Invoice number prefix (e.g. CC)'),
+          _field(
+            _tagline,
+            'Tagline under the shop name on the bill',
+            maxLines: 2,
+          ),
+          _field(_receiptFooterText, 'Thank-you line', maxLines: 2),
+          _field(
+            _termsText,
+            'Exchange policy printed on every bill',
+            maxLines: 3,
+          ),
+          _field(
+            _jurisdiction,
+            'Jurisdiction line (e.g. Subject to Jaipur jurisdiction)',
+          ),
+          _field(
+            _declarationText,
+            'Declaration on the full-sheet tax invoice',
+            maxLines: 3,
+          ),
+          _field(
+            _bankDetails,
+            'Bank details for business buyers (optional)',
+            maxLines: 3,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: AccentButton(
+              label: 'Save shop profile',
+              icon: Icons.save_outlined,
+              tall: true,
+              busy: _saving,
+              onPressed: _save,
+            ),
           ),
         ],
       ),
     );
   }
+
+  /// A heading inside the form, so a long profile reads as three short
+  /// sections rather than twenty consecutive boxes.
+  Widget _groupLabel(String title, {String? hint}) => Padding(
+    padding: const EdgeInsets.only(bottom: AppSpacing.base),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title.toUpperCase(),
+          style: AppTypography.microLabel.copyWith(color: AppColors.goldDeep),
+        ),
+        if (hint != null) ...[
+          const SizedBox(height: 3),
+          Text(
+            hint,
+            style: const TextStyle(fontSize: 12.5, color: AppColors.inkFaint),
+          ),
+        ],
+      ],
+    ),
+  );
 
   Widget _field(
     TextEditingController controller,
@@ -247,6 +340,7 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
     await widget.store.saveStoreProfile(
       StoreProfile(
         storeName: _storeName.text.trim(),
@@ -258,10 +352,16 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
         currencySymbol: _currencySymbol.text.trim(),
         receiptFooterText: _receiptFooterText.text.trim(),
         receiptNumberPrefix: _receiptNumberPrefix.text.trim(),
+        tagline: _tagline.text.trim(),
+        termsText: _termsText.text.trim(),
+        declarationText: _declarationText.text.trim(),
+        bankDetails: _bankDetails.text.trim(),
+        jurisdiction: _jurisdiction.text.trim(),
         gstin: _gstin.text.trim().toUpperCase(),
         stateCode: _stateCode,
       ),
     );
+    if (mounted) setState(() => _saving = false);
     widget.onSaved();
   }
 }

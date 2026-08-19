@@ -10,9 +10,13 @@ import 'package:path_provider/path_provider.dart';
 import '../database/app_database.dart';
 import '../utils/formatters.dart';
 import 'gst.dart';
+import 'held_bills.dart';
 import 'permissions.dart';
+import 'printer_service.dart';
 import 'reports.dart';
 import 'returns_and_shifts.dart';
+import 'statements.dart';
+import 'stocktake.dart';
 
 class AppUser {
   const AppUser({
@@ -46,7 +50,39 @@ class StoreProfile {
     this.gstin,
     this.stateCode,
     this.currencyLocale = 'en_IN',
+    this.tagline = '',
+    this.termsText = '',
+    this.declarationText = '',
+    this.bankDetails = '',
+    this.jurisdiction = '',
   });
+
+  /// What a fresh installation starts from.
+  ///
+  /// The same build runs in more than one shop, so nothing here is baked into
+  /// the code that prints the bill — these are only the values the setup screen
+  /// opens with, and every one of them is editable under Settings. A second
+  /// shop types over them; changing what a new installation starts from is a
+  /// matter of editing this one constant.
+  static const firstRunDefaults = StoreProfile(
+    storeName: 'CLASSY CLOSET',
+    currencySymbol: '₹',
+    address: 'Shop no. 101, 1st Floor, Mansarovar Plaza, Jaipur',
+    gstin: '08KGDPK6891Q1Z8',
+    stateCode: '08',
+    receiptNumberPrefix: 'CC',
+    // The logo already carries "Men's Fashion Store", so the tagline is only
+    // the half the artwork does not say.
+    tagline: 'Look Classy, Feel Content',
+    receiptFooterText: 'Thank you for shopping with us.',
+    termsText:
+        'Exchange within 7 days with the bill. '
+        'No exchange on altered or washed garments.',
+    declarationText:
+        'We declare that this invoice shows the actual price of the goods '
+        'described and that all particulars are true and correct.',
+    jurisdiction: 'Subject to Jaipur jurisdiction',
+  );
 
   final String storeName;
   final String currencySymbol;
@@ -66,6 +102,23 @@ class StoreProfile {
   /// between CGST+SGST and IGST.
   final String? stateCode;
   final String currencyLocale;
+
+  /// The line under the shop name on the bill — what the shop sells and why
+  /// someone should come back.
+  final String tagline;
+
+  /// The exchange policy, printed at the foot of every bill. This is the line a
+  /// customer argues with a week later, so the shop must be able to word it.
+  final String termsText;
+
+  /// The declaration a tax invoice carries on a full sheet.
+  final String declarationText;
+
+  /// Account details for a business buyer paying by transfer.
+  final String bankDetails;
+
+  /// "Subject to <city> jurisdiction".
+  final String jurisdiction;
 
   /// Falls back to the state code embedded in the GSTIN when none was entered.
   String? get effectiveStateCode =>
@@ -88,6 +141,11 @@ class StoreProfile {
     'gstin': gstin,
     'stateCode': stateCode,
     'currencyLocale': currencyLocale,
+    'tagline': tagline,
+    'termsText': termsText,
+    'declarationText': declarationText,
+    'bankDetails': bankDetails,
+    'jurisdiction': jurisdiction,
   };
 
   factory StoreProfile.fromJson(Map<String, dynamic> json) => StoreProfile(
@@ -103,6 +161,11 @@ class StoreProfile {
     gstin: (json['gstin'] as String?)?.trim(),
     stateCode: (json['stateCode'] as String?)?.trim(),
     currencyLocale: (json['currencyLocale'] as String? ?? 'en_IN').trim(),
+    tagline: (json['tagline'] as String? ?? '').trim(),
+    termsText: (json['termsText'] as String? ?? '').trim(),
+    declarationText: (json['declarationText'] as String? ?? '').trim(),
+    bankDetails: (json['bankDetails'] as String? ?? '').trim(),
+    jurisdiction: (json['jurisdiction'] as String? ?? '').trim(),
   );
 }
 
@@ -303,6 +366,8 @@ class SaleRecord {
     this.upiAmount = 0,
     this.customerGstin,
     this.placeOfSupply,
+    this.paymentReference,
+    this.paymentTerminal,
   });
   final String receipt;
   final String customerName;
@@ -320,6 +385,11 @@ class SaleRecord {
   final double upiAmount;
   final String? customerGstin;
   final String? placeOfSupply;
+
+  /// What the card machine or UPI app called the transaction that paid this
+  /// bill, so a disputed charge can be matched back to the sale.
+  final String? paymentReference;
+  final String? paymentTerminal;
 
   double get taxTotal => cgst + sgst + igst;
   bool get isInterState => igst > 0;
@@ -379,12 +449,14 @@ class RetailStore extends ChangeNotifier {
 
   static const storeProfileKey = 'store_profile';
   static const gstSettingsKey = 'gst_settings';
+  static const printerSettingsKey = 'printer_settings';
   static const invoiceCounterKey = 'invoice_counter';
 
   final AppDatabase _db;
   AppUser? currentUser;
   StoreProfile? storeProfile;
   GstSettings gstSettings = const GstSettings();
+  PrinterSettings printerSettings = const PrinterSettings();
   final products = <ProductRecord>[];
   final styles = <StyleRecord>[];
   final customers = <CustomerRecord>[];
@@ -474,6 +546,7 @@ class RetailStore extends ChangeNotifier {
     await Future.wait([
       _loadStoreProfile(),
       _loadGstSettings(),
+      _loadPrinterSettings(),
       _loadLookups(),
       _loadSuppliers(),
       _loadProducts(),
@@ -485,8 +558,12 @@ class RetailStore extends ChangeNotifier {
       _loadPurchases(),
       _loadExpenses(),
     ]);
-    // Shifts read the user list, so they load after it rather than alongside.
+    // Shifts read the user list, payments read the party lists and stock counts
+    // read the catalogue, so all three load after those rather than alongside.
     await _loadShifts();
+    await _loadPartyPayments();
+    await _loadStocktakes();
+    await _loadHeldBills();
     _rebuildStyles();
     notifyListeners();
   }
@@ -1102,6 +1179,63 @@ class RetailStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Total taken off the cart, however it was applied.
+  double get cartDiscountTotal =>
+      cart.fold(0.0, (sum, line) => sum + line.discount);
+
+  /// The cart before any discount.
+  double get cartGrossTotal => cart.fold(0.0, (sum, line) => sum + line.gross);
+
+  /// Takes a flat rupee amount off a single line.
+  void setLineDiscount(CartLine line, double amount) {
+    line.discount = _money(amount.clamp(0, line.gross));
+    notifyListeners();
+  }
+
+  /// Takes a flat rupee amount off the whole bill — "the total came to 2,000,
+  /// give them 200 off".
+  ///
+  /// The amount is spread across the lines in proportion to what each is worth,
+  /// rather than simply subtracted from the total. That is not cosmetic: GST is
+  /// charged on the discounted value, so a bill-level discount that never
+  /// reaches the lines would print CGST and SGST figures that do not add up to
+  /// the total the customer is being asked to pay.
+  ///
+  /// Rounding leftovers land on the largest line, so the discount shown is
+  /// exactly the discount given, to the paisa.
+  void applyBillDiscount(double amount) {
+    if (cart.isEmpty) return;
+    final gross = cartGrossTotal;
+    final target = _money(amount.clamp(0, gross));
+    if (gross <= 0) return;
+
+    var allocated = 0.0;
+    var largest = cart.first;
+    for (final line in cart) {
+      final share = _money(target * line.gross / gross);
+      line.discount = share;
+      allocated += share;
+      if (line.gross > largest.gross) largest = line;
+    }
+    // Pro-rata shares rarely sum to the target exactly; the remainder goes on
+    // the biggest line, where a paisa is least visible.
+    final remainder = _money(target - allocated);
+    if (remainder != 0) {
+      largest.discount = _money(
+        (largest.discount + remainder).clamp(0, largest.gross),
+      );
+    }
+    notifyListeners();
+  }
+
+  /// Clears every discount on the cart.
+  void clearDiscounts() {
+    for (final line in cart) {
+      line.discount = 0;
+    }
+    notifyListeners();
+  }
+
   void removeFromCart(CartLine line) {
     cart.remove(line);
     notifyListeners();
@@ -1153,6 +1287,8 @@ class RetailStore extends ChangeNotifier {
     double cashAmount = 0,
     double cardAmount = 0,
     double upiAmount = 0,
+    String paymentReference = '',
+    String paymentTerminal = '',
   }) async {
     final snapshot = List<CartLine>.from(cart);
     if (snapshot.isEmpty) {
@@ -1213,6 +1349,14 @@ class RetailStore extends ChangeNotifier {
                     storeProfile?.effectiveStateCode,
               ),
               shiftId: Value(openShift?.id),
+              paymentReference: Value(
+                paymentReference.trim().isEmpty
+                    ? null
+                    : paymentReference.trim(),
+              ),
+              paymentTerminal: Value(
+                paymentTerminal.trim().isEmpty ? null : paymentTerminal.trim(),
+              ),
               customerGstin: Value(
                 (customer?.gstin.trim().isNotEmpty ?? false)
                     ? customer!.gstin.trim()
@@ -1292,6 +1436,12 @@ class RetailStore extends ChangeNotifier {
         customerGstin: customer?.gstin,
         placeOfSupply:
             customer?.effectiveStateCode ?? storeProfile?.effectiveStateCode,
+        paymentReference: paymentReference.trim().isEmpty
+            ? null
+            : paymentReference.trim(),
+        paymentTerminal: paymentTerminal.trim().isEmpty
+            ? null
+            : paymentTerminal.trim(),
       );
     });
     cart.clear();
@@ -1588,6 +1738,701 @@ class RetailStore extends ChangeNotifier {
   double expensesBetween(DateTime from, DateTime to) => expenses
       .where((e) => !e.spentAt.isBefore(from) && e.spentAt.isBefore(to))
       .fold(0.0, (sum, e) => sum + e.amount);
+
+  // ------------------------------------------------------------- held bills
+
+  final heldBills = <HeldBillRecord>[];
+
+  /// Parks the current basket so the counter can serve someone else.
+  ///
+  /// The customer has gone to try something on; the next person is waiting.
+  /// Everything about the basket is written to disk, because the shop's power
+  /// is not reliable and a crash must not cost a full trolley.
+  Future<HeldBillRecord> holdCurrentBill({
+    required String label,
+    CustomerRecord? customer,
+  }) async {
+    if (cart.isEmpty) {
+      throw StateError('There is nothing on the bill to hold.');
+    }
+    final name = label.trim().isEmpty
+        ? 'Held at ${AppFormatters.dateTime(DateTime.now())}'
+        : label.trim();
+
+    final snapshot = List<CartLine>.from(cart);
+    late int id;
+    await _db.transaction(() async {
+      id = await _db
+          .into(_db.heldBills)
+          .insert(
+            HeldBillsCompanion.insert(
+              label: name,
+              customerId: Value(customer?.id),
+              userId: Value(currentUser?.id),
+            ),
+          );
+      for (final line in snapshot) {
+        await _db
+            .into(_db.heldBillItems)
+            .insert(
+              HeldBillItemsCompanion.insert(
+                heldBillId: id,
+                productId: line.product.id,
+                quantity: line.quantity,
+                discount: Value(line.discount),
+              ),
+            );
+      }
+    });
+
+    cart.clear();
+    await _audit('CREATE', 'held_bills', id, 'Held a bill as "$name"');
+    await refresh();
+    return heldBills.firstWhere((b) => b.id == id);
+  }
+
+  /// Puts a held bill back on the counter and removes it from the held list.
+  ///
+  /// Anything already in the cart is kept — recalling adds to it rather than
+  /// throwing away what the assistant has just scanned.
+  Future<void> recallHeldBill(int id) async {
+    final held = heldBills.where((b) => b.id == id).firstOrNull;
+    if (held == null) throw StateError('That held bill is no longer there.');
+
+    for (final line in held.lines) {
+      final product = products.where((p) => p.id == line.productId).firstOrNull;
+      // A product deleted while the bill was parked is skipped rather than
+      // taking the whole recall down.
+      if (product == null) continue;
+      final existing = cart
+          .where((c) => c.product.id == product.id)
+          .firstOrNull;
+      if (existing == null) {
+        cart.add(
+          CartLine(
+            product: product,
+            quantity: line.quantity,
+            discount: line.discount,
+          ),
+        );
+      } else {
+        existing.quantity += line.quantity;
+        existing.discount += line.discount;
+      }
+    }
+
+    await (_db.delete(_db.heldBills)..where((b) => b.id.equals(id))).go();
+    await _audit('DELETE', 'held_bills', id, 'Recalled "${held.label}"');
+    await refresh();
+  }
+
+  /// Throws a held bill away without selling it.
+  Future<void> discardHeldBill(int id) async {
+    final held = heldBills.where((b) => b.id == id).firstOrNull;
+    await (_db.delete(_db.heldBills)..where((b) => b.id.equals(id))).go();
+    await _audit(
+      'DELETE',
+      'held_bills',
+      id,
+      'Discarded "${held?.label ?? id}"',
+    );
+    await refresh();
+  }
+
+  Future<void> _loadHeldBills() async {
+    final rows = await (_db.select(
+      _db.heldBills,
+    )..orderBy([(b) => OrderingTerm.desc(b.heldAt)])).get();
+    final items = await _db.select(_db.heldBillItems).get();
+    final byProduct = {for (final p in products) p.id: p};
+    final customerNames = {for (final c in customers) c.id: c.name};
+
+    heldBills
+      ..clear()
+      ..addAll(
+        rows.map((row) {
+          final lines = items
+              .where((i) => i.heldBillId == row.id)
+              .map(
+                (i) => HeldBillLine(
+                  productId: i.productId,
+                  description:
+                      byProduct[i.productId]?.displayName ?? 'Removed product',
+                  quantity: i.quantity,
+                  discount: i.discount,
+                  unitPrice: byProduct[i.productId]?.sellingPrice ?? 0,
+                ),
+              )
+              .toList();
+          return HeldBillRecord(
+            id: row.id,
+            label: row.label,
+            customerName: customerNames[row.customerId],
+            heldAt: row.heldAt,
+            lines: lines,
+          );
+        }),
+      );
+  }
+
+  // ---------------------------------------------------------- stock counts
+
+  final stocktakes = <StocktakeRecord>[];
+
+  /// The session being counted right now, if there is one.
+  StocktakeRecord? get openStocktake =>
+      stocktakes.where((s) => s.isOpen).firstOrNull;
+
+  /// Opens a count session. Only one can be open at a time — two people
+  /// counting the same rail into two sessions would each write the other off.
+  Future<StocktakeRecord> startStocktake() async {
+    if (openStocktake != null) {
+      throw StateError(
+        'A count is already open (${openStocktake!.reference}). Finish or '
+        'abandon it before starting another.',
+      );
+    }
+    final startedAt = DateTime.now();
+    final reference = await _nextStocktakeReference(startedAt);
+    final id = await _db
+        .into(_db.stocktakes)
+        .insert(
+          StocktakesCompanion.insert(
+            reference: reference,
+            userId: Value(currentUser?.id),
+            startedAt: Value(startedAt),
+          ),
+        );
+    await _audit('CREATE', 'stocktakes', id, 'Started stock count $reference');
+    await refresh();
+    return stocktakes.firstWhere((s) => s.id == id);
+  }
+
+  /// Records what was actually on the rail for one product.
+  ///
+  /// The system figure is captured now rather than at commit time, so a sale
+  /// rung up ten minutes after this shelf was counted is not misread as
+  /// shrinkage. Counting the same product twice replaces the earlier line.
+  Future<void> recordCount({
+    required int stocktakeId,
+    required int productId,
+    required double counted,
+  }) async {
+    final session = stocktakes.where((s) => s.id == stocktakeId).firstOrNull;
+    if (session == null || !session.isOpen) {
+      throw StateError('That stock count is not open.');
+    }
+    if (counted < 0) {
+      throw StateError('A counted quantity cannot be negative.');
+    }
+    final product = products.where((p) => p.id == productId).firstOrNull;
+    if (product == null) {
+      throw StateError('That product could not be found.');
+    }
+
+    await (_db.delete(_db.stocktakeItems)..where(
+          (i) =>
+              i.stocktakeId.equals(stocktakeId) & i.productId.equals(productId),
+        ))
+        .go();
+    await _db
+        .into(_db.stocktakeItems)
+        .insert(
+          StocktakeItemsCompanion.insert(
+            stocktakeId: stocktakeId,
+            productId: productId,
+            systemQuantity: product.stock,
+            countedQuantity: counted,
+            costPrice: Value(product.purchasePrice),
+          ),
+        );
+    await refresh();
+  }
+
+  /// Removes a counted line, for a shelf counted by mistake.
+  Future<void> removeCount({
+    required int stocktakeId,
+    required int productId,
+  }) async {
+    await (_db.delete(_db.stocktakeItems)..where(
+          (i) =>
+              i.stocktakeId.equals(stocktakeId) & i.productId.equals(productId),
+        ))
+        .go();
+    await refresh();
+  }
+
+  /// Applies the count to stock and closes the session.
+  ///
+  /// Every adjusted line leaves an inventory movement behind, so the reason a
+  /// figure moved is still answerable months later. Lines that matched are left
+  /// alone — writing the same number back would bury the real changes in noise.
+  Future<StocktakeRecord> commitStocktake(
+    int stocktakeId, {
+    String notes = '',
+  }) async {
+    final session = stocktakes.where((s) => s.id == stocktakeId).firstOrNull;
+    if (session == null || !session.isOpen) {
+      throw StateError('That stock count is not open.');
+    }
+    if (session.lines.isEmpty) {
+      throw StateError('Nothing has been counted yet.');
+    }
+
+    final committedAt = DateTime.now();
+    await _db.transaction(() async {
+      for (final line in session.lines) {
+        if (line.matches) continue;
+        await (_db.update(
+          _db.products,
+        )..where((p) => p.id.equals(line.productId))).write(
+          ProductsCompanion(currentStock: Value(line.countedQuantity)),
+        );
+        await _db
+            .into(_db.inventoryMovements)
+            .insert(
+              InventoryMovementsCompanion.insert(
+                productId: line.productId,
+                movementType: 'stocktake',
+                quantity: line.variance,
+                referenceType: const Value('stocktakes'),
+                referenceId: Value(stocktakeId),
+                createdAt: Value(committedAt),
+              ),
+            );
+      }
+      await (_db.update(
+        _db.stocktakes,
+      )..where((s) => s.id.equals(stocktakeId))).write(
+        StocktakesCompanion(
+          status: Value(StocktakeStatus.committed.name),
+          committedAt: Value(committedAt),
+          notes: Value(notes.trim().isEmpty ? null : notes.trim()),
+        ),
+      );
+      await _audit(
+        'UPDATE',
+        'stocktakes',
+        stocktakeId,
+        'Applied stock count ${session.reference}: '
+            '${session.discrepancies.length} of ${session.countedLines} lines '
+            'adjusted, net ${AppFormatters.currency(session.netValue)}',
+      );
+    });
+
+    await refresh();
+    return stocktakes.firstWhere((s) => s.id == stocktakeId);
+  }
+
+  /// Walks away from a count without touching stock.
+  Future<void> abandonStocktake(int stocktakeId, {String reason = ''}) async {
+    final session = stocktakes.where((s) => s.id == stocktakeId).firstOrNull;
+    if (session == null || !session.isOpen) {
+      throw StateError('That stock count is not open.');
+    }
+    await (_db.update(
+      _db.stocktakes,
+    )..where((s) => s.id.equals(stocktakeId))).write(
+      StocktakesCompanion(
+        status: Value(StocktakeStatus.abandoned.name),
+        committedAt: Value(DateTime.now()),
+        notes: Value(reason.trim().isEmpty ? null : reason.trim()),
+      ),
+    );
+    await _audit(
+      'UPDATE',
+      'stocktakes',
+      stocktakeId,
+      'Abandoned stock count ${session.reference}',
+    );
+    await refresh();
+  }
+
+  /// A one-off correction outside a count — damage, a sample taken, a
+  /// miscount spotted on the spot.
+  ///
+  /// [delta] is the change, not the new level: -2 for two shirts written off.
+  Future<void> adjustStock({
+    required int productId,
+    required double delta,
+    required String reason,
+  }) async {
+    if (delta == 0) {
+      throw StateError('Enter how many to add or take off.');
+    }
+    if (reason.trim().isEmpty) {
+      throw StateError('Say why the stock is being adjusted.');
+    }
+    final product = products.where((p) => p.id == productId).firstOrNull;
+    if (product == null) {
+      throw StateError('That product could not be found.');
+    }
+    final after = product.stock + delta;
+    if (after < 0) {
+      throw StateError(
+        'That would leave ${product.displayName} below zero. There are '
+        '${AppFormatters.quantity(product.stock)} on the books.',
+      );
+    }
+
+    await _db.transaction(() async {
+      await (_db.update(_db.products)..where((p) => p.id.equals(productId)))
+          .write(ProductsCompanion(currentStock: Value(after)));
+      await _db
+          .into(_db.inventoryMovements)
+          .insert(
+            InventoryMovementsCompanion.insert(
+              productId: productId,
+              movementType: 'adjustment',
+              quantity: delta,
+              referenceType: const Value('adjustments'),
+            ),
+          );
+      await _audit(
+        'UPDATE',
+        'products',
+        productId,
+        'Adjusted ${product.displayName} by '
+            '${delta > 0 ? '+' : ''}${AppFormatters.quantity(delta)}: '
+            '${reason.trim()}',
+      );
+    });
+    await refresh();
+  }
+
+  Future<String> _nextStocktakeReference(DateTime at) async {
+    final label = '${at.year}${at.month.toString().padLeft(2, '0')}';
+    final existing = await (_db.select(
+      _db.stocktakes,
+    )..where((s) => s.reference.like('STK/$label/%'))).get();
+    var highest = 0;
+    for (final row in existing) {
+      final tail = int.tryParse(row.reference.split('/').last) ?? 0;
+      if (tail > highest) highest = tail;
+    }
+    return 'STK/$label/${(highest + 1).toString().padLeft(3, '0')}';
+  }
+
+  Future<void> _loadStocktakes() async {
+    final rows = await (_db.select(
+      _db.stocktakes,
+    )..orderBy([(s) => OrderingTerm.desc(s.startedAt)])).get();
+    final names = {
+      for (final u in await _db.select(_db.users).get()) u.id: u.fullName,
+    };
+    final items = await _db.select(_db.stocktakeItems).get();
+    final byProduct = {for (final p in products) p.id: p};
+
+    stocktakes
+      ..clear()
+      ..addAll(
+        rows.map((row) {
+          final lines = items.where((i) => i.stocktakeId == row.id).map((i) {
+            final product = byProduct[i.productId];
+            return StocktakeLine(
+              productId: i.productId,
+              description: product?.displayName ?? 'Removed product',
+              sku: product?.sku ?? '',
+              systemQuantity: i.systemQuantity,
+              countedQuantity: i.countedQuantity,
+              costPrice: i.costPrice,
+              countedAt: i.countedAt,
+            );
+          }).toList()..sort((a, b) => a.description.compareTo(b.description));
+
+          return StocktakeRecord(
+            id: row.id,
+            reference: row.reference,
+            status: StocktakeStatus.fromName(row.status),
+            startedAt: row.startedAt,
+            committedAt: row.committedAt,
+            userName: names[row.userId] ?? '',
+            notes: row.notes ?? '',
+            lines: lines,
+          );
+        }),
+      );
+  }
+
+  // ------------------------------------------------- payments & statements
+
+  final partyPayments = <PartyPaymentRecord>[];
+
+  /// Records money settled against a party's balance and moves that balance.
+  ///
+  /// A credit sale grows what a customer owes and an unpaid delivery grows what
+  /// the shop owes its supplier; this is the only thing that brings either back
+  /// down. Cash settled while a till session is open also posts a cash movement
+  /// so the drawer still reconciles at close — otherwise the money would be in
+  /// the till at close with nothing explaining it.
+  Future<PartyPaymentRecord> recordPartyPayment({
+    required PartyKind kind,
+    required int partyId,
+    required double amount,
+    PaymentMethod method = PaymentMethod.cash,
+    String notes = '',
+    DateTime? paidAt,
+  }) async {
+    final rounded = _money(amount);
+    if (rounded <= 0) {
+      throw StateError('Enter an amount greater than zero.');
+    }
+
+    final name = kind == PartyKind.customer
+        ? customers.where((c) => c.id == partyId).firstOrNull?.name
+        : suppliers.where((s) => s.id == partyId).firstOrNull?.name;
+    if (name == null) {
+      throw StateError('That ${kind.name} could not be found.');
+    }
+
+    final when = paidAt ?? DateTime.now();
+    late PartyPaymentRecord record;
+    await _db.transaction(() async {
+      final reference = await _nextPaymentReference(kind, when);
+      final id = await _db
+          .into(_db.partyPayments)
+          .insert(
+            PartyPaymentsCompanion.insert(
+              partyType: kind.name,
+              partyId: partyId,
+              reference: reference,
+              amount: rounded,
+              method: Value(method.name),
+              notes: Value(notes.trim().isEmpty ? null : notes.trim()),
+              userId: Value(currentUser?.id),
+              paidAt: Value(when),
+            ),
+          );
+
+      if (kind == PartyKind.customer) {
+        final customer = customers.firstWhere((c) => c.id == partyId);
+        await (_db.update(
+          _db.customers,
+        )..where((c) => c.id.equals(partyId))).write(
+          CustomersCompanion(
+            currentBalance: Value(_money(customer.balance - rounded)),
+          ),
+        );
+      } else {
+        final supplier = suppliers.firstWhere((s) => s.id == partyId);
+        await (_db.update(
+          _db.suppliers,
+        )..where((s) => s.id.equals(partyId))).write(
+          SuppliersCompanion(
+            currentBalance: Value(_money(supplier.balance - rounded)),
+          ),
+        );
+      }
+
+      await _audit(
+        'CREATE',
+        'party_payments',
+        id,
+        '${kind == PartyKind.customer ? 'Received from' : 'Paid'} $name: '
+            '${AppFormatters.currency(rounded)} ($reference)',
+      );
+
+      record = PartyPaymentRecord(
+        id: id,
+        kind: kind,
+        partyId: partyId,
+        partyName: name,
+        reference: reference,
+        amount: rounded,
+        method: method,
+        paidAt: when,
+        notes: notes.trim(),
+        userName: currentUser?.name ?? '',
+      );
+    });
+
+    // Cash across the counter belongs to the open drawer, in either direction.
+    if (method == PaymentMethod.cash && openShift != null) {
+      await recordCashMovement(
+        amount: rounded,
+        isIn: kind == PartyKind.customer,
+        reason: kind == PartyKind.customer
+            ? 'Received from $name (${record.reference})'
+            : 'Paid to $name (${record.reference})',
+      );
+    }
+
+    await refresh();
+    return record;
+  }
+
+  /// Voucher numbers run RCP/… for money in and PMT/… for money out, sequential
+  /// within the financial year so a shop can quote one over the phone.
+  Future<String> _nextPaymentReference(PartyKind kind, DateTime at) async {
+    final startYear = at.month >= 4 ? at.year : at.year - 1;
+    final label = '${startYear % 100}${(startYear + 1) % 100}'.padLeft(4, '0');
+    final prefix = kind == PartyKind.customer ? 'RCP' : 'PMT';
+
+    final existing = await (_db.select(
+      _db.partyPayments,
+    )..where((p) => p.reference.like('$prefix/$label/%'))).get();
+    var highest = 0;
+    for (final row in existing) {
+      final tail = int.tryParse(row.reference.split('/').last) ?? 0;
+      if (tail > highest) highest = tail;
+    }
+    return '$prefix/$label/${(highest + 1).toString().padLeft(4, '0')}';
+  }
+
+  Future<void> _loadPartyPayments() async {
+    final rows = await (_db.select(
+      _db.partyPayments,
+    )..orderBy([(p) => OrderingTerm.desc(p.paidAt)])).get();
+    final names = {
+      for (final u in await _db.select(_db.users).get()) u.id: u.fullName,
+    };
+
+    partyPayments
+      ..clear()
+      ..addAll(
+        rows.map((r) {
+          final kind = r.partyType == PartyKind.supplier.name
+              ? PartyKind.supplier
+              : PartyKind.customer;
+          final party = kind == PartyKind.customer
+              ? customers.where((c) => c.id == r.partyId).firstOrNull?.name
+              : suppliers.where((s) => s.id == r.partyId).firstOrNull?.name;
+          return PartyPaymentRecord(
+            id: r.id,
+            kind: kind,
+            partyId: r.partyId,
+            partyName: party ?? 'Unknown',
+            reference: r.reference,
+            amount: r.amount,
+            method: PaymentMethod.fromName(r.method),
+            paidAt: r.paidAt,
+            notes: r.notes ?? '',
+            userName: names[r.userId] ?? '',
+          );
+        }),
+      );
+  }
+
+  /// Builds a statement of account for one party over [range].
+  ///
+  /// The opening balance is worked backwards from where the party stands today,
+  /// undoing every movement from the end of the window onwards. Doing it that
+  /// way means the closing figure always agrees with the balance shown on the
+  /// customers screen, which is the number anyone will check it against.
+  Future<StatementBundle> buildStatement({
+    required PartyKind kind,
+    required int partyId,
+    required DateRange range,
+  }) async {
+    final movements = <StatementMovement>[];
+    var balanceNow = 0.0;
+    var name = 'Unknown', phone = '', address = '', gstin = '';
+
+    if (kind == PartyKind.customer) {
+      final customer = customers.where((c) => c.id == partyId).firstOrNull;
+      if (customer == null) {
+        throw StateError('That customer could not be found.');
+      }
+      name = customer.name;
+      phone = customer.phone;
+      address = customer.address;
+      gstin = customer.gstin;
+      balanceNow = customer.balance;
+
+      final sales = await (_db.select(
+        _db.sales,
+      )..where((s) => s.customerId.equals(partyId))).get();
+      for (final sale in sales) {
+        final unpaid = _money(sale.grandTotal - sale.paidAmount);
+        if (unpaid <= 0) continue;
+        movements.add(
+          StatementMovement(
+            date: sale.soldAt,
+            reference: sale.receiptNumber,
+            description: 'Sale on credit',
+            debit: unpaid,
+          ),
+        );
+      }
+
+      final credits = await (_db.select(
+        _db.returns,
+      )..where((r) => r.customerId.equals(partyId))).get();
+      for (final credit in credits) {
+        if (credit.refundMethod != 'credit') continue;
+        movements.add(
+          StatementMovement(
+            date: credit.returnedAt,
+            reference: credit.returnNumber,
+            description: 'Credit note',
+            credit: credit.totalAmount,
+          ),
+        );
+      }
+    } else {
+      final supplier = suppliers.where((s) => s.id == partyId).firstOrNull;
+      if (supplier == null) {
+        throw StateError('That supplier could not be found.');
+      }
+      name = supplier.name;
+      phone = supplier.phone;
+      address = supplier.address;
+      balanceNow = supplier.balance;
+
+      final deliveries = await (_db.select(
+        _db.purchases,
+      )..where((p) => p.supplierId.equals(partyId))).get();
+      for (final delivery in deliveries) {
+        final unpaid = _money(delivery.grandTotal - delivery.paidAmount);
+        if (unpaid <= 0) continue;
+        movements.add(
+          StatementMovement(
+            date: delivery.purchasedAt,
+            reference: delivery.invoiceNumber,
+            description: 'Delivery received',
+            debit: unpaid,
+          ),
+        );
+      }
+    }
+
+    for (final payment in partyPayments) {
+      if (payment.kind != kind || payment.partyId != partyId) continue;
+      movements.add(
+        StatementMovement(
+          date: payment.paidAt,
+          reference: payment.reference,
+          description: kind == PartyKind.customer
+              ? 'Payment received (${payment.method.label})'
+              : 'Payment made (${payment.method.label})',
+          credit: payment.amount,
+        ),
+      );
+    }
+
+    // Everything after the window has to be undone to find where the balance
+    // stood when it closed, and everything inside it to find the opening.
+    final after = movements.where((m) => !m.date.isBefore(range.to));
+    final inside = movements.where(
+      (m) => !m.date.isBefore(range.from) && m.date.isBefore(range.to),
+    );
+    final closing =
+        balanceNow - after.fold(0.0, (sum, m) => sum + m.debit - m.credit);
+    final opening =
+        closing - inside.fold(0.0, (sum, m) => sum + m.debit - m.credit);
+
+    return StatementBundle(
+      kind: kind,
+      partyId: partyId,
+      partyName: name,
+      range: range,
+      openingBalance: _money(opening),
+      lines: runningBalance(_money(opening), inside.toList()),
+      phone: phone,
+      address: address,
+      gstin: gstin,
+    );
+  }
 
   // ------------------------------------------------------------- reports
 
@@ -2401,6 +3246,29 @@ class RetailStore extends ChangeNotifier {
         : GstSettings.decode(row.valueJson);
   }
 
+  Future<void> _loadPrinterSettings() async {
+    final row = await (_db.select(
+      _db.settings,
+    )..where((s) => s.key.equals(printerSettingsKey))).getSingleOrNull();
+    printerSettings = row == null
+        ? const PrinterSettings()
+        : PrinterSettings.decode(row.valueJson);
+  }
+
+  Future<void> savePrinterSettings(PrinterSettings settings) async {
+    await _db
+        .into(_db.settings)
+        .insertOnConflictUpdate(
+          SettingsCompanion.insert(
+            key: printerSettingsKey,
+            valueJson: settings.encode(),
+          ),
+        );
+    printerSettings = settings;
+    await _audit('UPSERT', 'settings', null, 'Updated printer settings');
+    notifyListeners();
+  }
+
   Future<void> saveGstSettings(GstSettings settings) async {
     await _db
         .into(_db.settings)
@@ -2630,6 +3498,8 @@ class RetailStore extends ChangeNotifier {
             upiAmount: s.upiAmount,
             customerGstin: s.customerGstin,
             placeOfSupply: s.placeOfSupply,
+            paymentReference: s.paymentReference,
+            paymentTerminal: s.paymentTerminal,
           ),
         ),
       );

@@ -111,7 +111,7 @@ class _BackupPanelState extends State<BackupPanel> {
 
   Future<void> _backup() async {
     final path = await FilePicker.platform.saveFile(
-      dialogTitle: 'Save RetailPro backup',
+      dialogTitle: 'Save Classy Closet backup',
       fileName: widget.service.suggestedFileName(),
       type: FileType.custom,
       allowedExtensions: const ['zip'],
@@ -131,7 +131,7 @@ class _BackupPanelState extends State<BackupPanel> {
 
   Future<void> _restore() async {
     final picked = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Choose a RetailPro backup',
+      dialogTitle: 'Choose a Classy Closet backup',
       type: FileType.custom,
       allowedExtensions: const ['zip'],
     );
@@ -156,7 +156,7 @@ class _BackupPanelState extends State<BackupPanel> {
           'replaced by what is in the backup file.\n\n'
           'A copy of the current data is kept alongside it first, so this can '
           'be undone.\n\n'
-          'You will need to close and reopen RetailPro afterwards.',
+          'You will need to close and reopen Classy Closet afterwards.',
         ),
         actions: [
           TextButton(

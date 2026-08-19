@@ -1,4 +1,4 @@
-# RetailPro — Offline Desktop ERP/POS
+# Classy Closet — Offline Desktop ERP/POS
 
 Flutter Windows desktop application scaffold for an offline retail ERP/POS backed by SQLite and Drift.
 

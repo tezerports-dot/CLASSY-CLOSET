@@ -15,6 +15,8 @@ class PosRepository {
     required double cashAmount,
     required double cardAmount,
     double upiAmount = 0,
+    String paymentReference = '',
+    String paymentTerminal = '',
   }) => _store.checkout(
     customer: customer,
     paid: paid,
@@ -22,5 +24,7 @@ class PosRepository {
     cashAmount: cashAmount,
     cardAmount: cardAmount,
     upiAmount: upiAmount,
+    paymentReference: paymentReference,
+    paymentTerminal: paymentTerminal,
   );
 }

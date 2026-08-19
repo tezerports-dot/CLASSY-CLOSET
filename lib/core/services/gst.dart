@@ -147,13 +147,28 @@ GstLineTax computeLineTax({
     taxAmount = lineTotal * ratePercent / 100;
   }
 
+  // Every figure on the invoice is derived from the two rounded anchors below,
+  // never rounded independently. Rounding CGST and SGST separately loses a
+  // paisa on any line whose tax is an odd number of paise — 5% of 1,350 is
+  // 64.29, which halves to 32.145 and rounds to 32.14 twice, so the printed
+  // invoice comes to a paisa less than the customer was charged. A tax invoice
+  // that does not foot is a tax invoice that fails inspection.
+  final tax = _round(taxAmount);
+  final half = _round(tax / 2);
+
   return GstLineTax(
-    taxableValue: _round(taxableValue),
-    taxAmount: _round(taxAmount),
+    // Taxable value is what is left after tax, so taxable + tax reconstructs
+    // the gross exactly.
+    taxableValue: priceIncludesTax
+        ? _round(lineTotal - tax)
+        : _round(lineTotal),
+    taxAmount: tax,
     ratePercent: ratePercent,
-    cgst: interState ? 0 : _round(taxAmount / 2),
-    sgst: interState ? 0 : _round(taxAmount / 2),
-    igst: interState ? _round(taxAmount) : 0,
+    cgst: interState ? 0 : half,
+    // The second half is the remainder rather than another rounded half, so the
+    // pair always adds back up to the tax charged.
+    sgst: interState ? 0 : _round(tax - half),
+    igst: interState ? tax : 0,
   );
 }
 

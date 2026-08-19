@@ -1,5 +1,6 @@
 import 'package:classy_closet/app/di/injection.dart';
 import 'package:classy_closet/core/database/app_database.dart';
+import 'package:classy_closet/core/services/printer_service.dart';
 import 'package:classy_closet/core/services/retail_store.dart';
 import 'package:classy_closet/features/pos/data/repositories/pos_repository.dart';
 import 'package:classy_closet/features/pos/presentation/pos_page.dart';
@@ -18,6 +19,11 @@ void main() {
     getIt.registerSingleton<AppDatabase>(db);
     getIt.registerSingleton<RetailStore>(store);
     getIt.registerSingleton<PosRepository>(PosRepository(store));
+    // The till reads the printer service on build; a transport that reports
+    // itself unsupported keeps the widget test off the Windows plugin channel.
+    getIt.registerSingleton<PrinterService>(
+      PrinterService(transport: const UnsupportedRawPrinterTransport()),
+    );
 
     await store.initialize();
     await store.login('admin', 'admin123');

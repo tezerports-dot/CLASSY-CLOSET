@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../app/di/injection.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/services/returns_and_shifts.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
-import '../../../core/widgets/section_card.dart';
+import '../../../core/widgets/ui_kit.dart';
 
 /// Takes goods back against an existing bill.
 ///
@@ -54,11 +56,21 @@ class _ReturnsPageState extends State<ReturnsPage> {
     return AnimatedBuilder(
       animation: _store,
       builder: (context, _) => SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.xxl),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            const PageHeader(
+              title: 'Returns',
+              subtitle:
+                  'Goods come back against the bill they went out on, so a '
+                  'refund can never exceed what was sold or be given twice.',
+            ),
             SectionCard(
               title: 'Take goods back',
+              subtitle:
+                  'Scan the barcode printed on the bill, or type the bill '
+                  'number.',
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -78,18 +90,13 @@ class _ReturnsPageState extends State<ReturnsPage> {
                           onSubmitted: (_) => _find(),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      FilledButton.icon(
-                        onPressed: _searching ? null : _find,
-                        icon: _searching
-                            ? const SizedBox.square(
-                                dimension: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.search),
-                        label: const Text('Find bill'),
+                      const SizedBox(width: AppSpacing.base),
+                      AccentButton(
+                        label: 'Find bill',
+                        icon: Icons.search_rounded,
+                        tall: true,
+                        busy: _searching,
+                        onPressed: _find,
                       ),
                     ],
                   ),
@@ -108,43 +115,47 @@ class _ReturnsPageState extends State<ReturnsPage> {
                 ],
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpacing.xl),
             SectionCard(
               title: 'Past returns',
-              child: _store.returns.isEmpty
-                  ? const Text('Nothing has been returned yet.')
-                  : SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: DataTable(
-                        columns: const [
-                          DataColumn(label: Text('Credit note')),
-                          DataColumn(label: Text('Against bill')),
-                          DataColumn(label: Text('Customer')),
-                          DataColumn(label: Text('Items')),
-                          DataColumn(label: Text('Refunded')),
-                          DataColumn(label: Text('How')),
-                          DataColumn(label: Text('When')),
-                        ],
-                        rows: [
-                          for (final r in _store.returns.take(50))
-                            DataRow(
-                              cells: [
-                                DataCell(Text(r.returnNumber)),
-                                DataCell(Text(r.saleReceipt)),
-                                DataCell(Text(r.customerName)),
-                                DataCell(Text('${r.lineCount}')),
-                                DataCell(
-                                  Text(AppFormatters.currency(r.totalAmount)),
-                                ),
-                                DataCell(Text(r.refundMethod.label)),
-                                DataCell(
-                                  Text(AppFormatters.dateTime(r.returnedAt)),
-                                ),
-                              ],
-                            ),
-                        ],
-                      ),
+              subtitle: _store.returns.length > 50
+                  ? 'The 50 most recent.'
+                  : null,
+              child: AppTable(
+                minWidth: 900,
+                empty: const EmptyState(
+                  icon: Icons.assignment_return_outlined,
+                  title: 'Nothing has come back yet',
+                  message:
+                      'Returns you take here put the stock back on the rail '
+                      'and produce a credit note against the original bill.',
+                ),
+                columns: const [
+                  DataColumn(label: Text('CREDIT NOTE')),
+                  DataColumn(label: Text('AGAINST BILL')),
+                  DataColumn(label: Text('CUSTOMER')),
+                  DataColumn(label: Text('ITEMS'), numeric: true),
+                  DataColumn(label: Text('REFUNDED'), numeric: true),
+                  DataColumn(label: Text('HOW')),
+                  DataColumn(label: Text('WHEN')),
+                ],
+                rows: [
+                  for (final r in _store.returns.take(50))
+                    DataRow(
+                      cells: [
+                        DataCell(CodeText(r.returnNumber, size: 12)),
+                        DataCell(CodeText(r.saleReceipt, size: 12)),
+                        DataCell(Text(r.customerName)),
+                        DataCell(Text('${r.lineCount}')),
+                        DataCell(
+                          MoneyText(r.totalAmount, size: 13, signed: true),
+                        ),
+                        DataCell(StatusPill(r.refundMethod.label)),
+                        DataCell(Text(AppFormatters.dateTime(r.returnedAt))),
+                      ],
                     ),
+                ],
+              ),
             ),
           ],
         ),
@@ -153,29 +164,24 @@ class _ReturnsPageState extends State<ReturnsPage> {
   }
 
   Widget _banner(BuildContext context) {
-    final theme = Theme.of(context);
-    final bg = _messageIsError
-        ? theme.colorScheme.errorContainer
-        : theme.colorScheme.secondaryContainer;
-    final fg = _messageIsError
-        ? theme.colorScheme.onErrorContainer
-        : theme.colorScheme.onSecondaryContainer;
+    final bg = _messageIsError ? AppColors.dangerWash : AppColors.successWash;
+    final fg = _messageIsError ? AppColors.danger : AppColors.success;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(10),
-      ),
+      padding: const EdgeInsets.all(AppSpacing.base),
+      decoration: BoxDecoration(color: bg, borderRadius: AppRadii.inputBorder),
       child: Row(
         children: [
           Icon(
-            _messageIsError ? Icons.error_outline : Icons.check_circle,
+            _messageIsError
+                ? Icons.error_outline_rounded
+                : Icons.check_circle_outline_rounded,
+            size: 17,
             color: fg,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: AppSpacing.md),
           Expanded(
-            child: Text(_message!, style: TextStyle(color: fg)),
+            child: Text(_message!, style: TextStyle(color: fg, fontSize: 12.5)),
           ),
         ],
       ),
@@ -184,90 +190,103 @@ class _ReturnsPageState extends State<ReturnsPage> {
 
   Widget _saleHeader(BuildContext context) {
     final sale = _sale!;
-    return Wrap(
-      spacing: 24,
-      runSpacing: 8,
-      children: [
-        _fact('Bill', sale.receiptNumber),
-        _fact('Sold', AppFormatters.dateTime(sale.soldAt)),
-        _fact('Customer', sale.customerName),
-        _fact('Bill total', AppFormatters.currency(sale.grandTotal)),
-      ],
-    );
-  }
-
-  Widget _fact(String label, String value) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Text(label, style: const TextStyle(fontSize: 11.5)),
-      Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
-    ],
-  );
-
-  Widget _lineTable(BuildContext context) {
-    final sale = _sale!;
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: DataTable(
-        columns: const [
-          DataColumn(label: Text('Item')),
-          DataColumn(label: Text('Sold')),
-          DataColumn(label: Text('Already back')),
-          DataColumn(label: Text('Can take back')),
-          DataColumn(label: Text('Taking back')),
-          DataColumn(label: Text('Refund')),
-        ],
-        rows: [
-          for (final line in sale.lines)
-            DataRow(
-              cells: [
-                DataCell(Text(line.description)),
-                DataCell(Text(AppFormatters.quantity(line.soldQuantity))),
-                DataCell(Text(AppFormatters.quantity(line.alreadyReturned))),
-                DataCell(Text(AppFormatters.quantity(line.returnableQuantity))),
-                DataCell(
-                  line.isFullyReturned
-                      ? const Text('—')
-                      : Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.remove, size: 18),
-                              onPressed: () => _bump(line, -1),
-                            ),
-                            SizedBox(
-                              width: 34,
-                              child: Text(
-                                AppFormatters.quantity(
-                                  _quantities[line.saleItemId] ?? 0,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.add, size: 18),
-                              onPressed: () => _bump(line, 1),
-                            ),
-                          ],
-                        ),
-                ),
-                DataCell(
-                  Text(
-                    AppFormatters.currency(
-                      line.refundFor(_quantities[line.saleItemId] ?? 0),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        borderRadius: AppRadii.inputBorder,
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Wrap(
+        spacing: 40,
+        runSpacing: AppSpacing.base,
+        children: [
+          _fact('BILL', sale.receiptNumber, code: true),
+          _fact('SOLD', AppFormatters.dateTime(sale.soldAt)),
+          _fact('CUSTOMER', sale.customerName),
+          _fact('BILL TOTAL', AppFormatters.currency(sale.grandTotal)),
         ],
       ),
     );
   }
 
+  Widget _fact(String label, String value, {bool code = false}) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(
+        label,
+        style: AppTypography.microLabel.copyWith(color: AppColors.inkFaint),
+      ),
+      const SizedBox(height: 2),
+      code
+          ? CodeText(value, size: 13)
+          : Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+            ),
+    ],
+  );
+
+  Widget _lineTable(BuildContext context) {
+    final sale = _sale!;
+    return AppTable(
+      minWidth: 820,
+      columns: const [
+        DataColumn(label: Text('ITEM')),
+        DataColumn(label: Text('SOLD'), numeric: true),
+        DataColumn(label: Text('ALREADY BACK'), numeric: true),
+        DataColumn(label: Text('CAN TAKE BACK'), numeric: true),
+        DataColumn(label: Text('TAKING BACK')),
+        DataColumn(label: Text('REFUND'), numeric: true),
+      ],
+      rows: [
+        for (final line in sale.lines)
+          DataRow(
+            cells: [
+              DataCell(Text(line.description)),
+              DataCell(Text(AppFormatters.quantity(line.soldQuantity))),
+              DataCell(Text(AppFormatters.quantity(line.alreadyReturned))),
+              DataCell(Text(AppFormatters.quantity(line.returnableQuantity))),
+              DataCell(
+                line.isFullyReturned
+                    ? const StatusPill('All back', tone: PillTone.neutral)
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.remove, size: 18),
+                            onPressed: () => _bump(line, -1),
+                          ),
+                          SizedBox(
+                            width: 34,
+                            child: Text(
+                              AppFormatters.quantity(
+                                _quantities[line.saleItemId] ?? 0,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.add, size: 18),
+                            onPressed: () => _bump(line, 1),
+                          ),
+                        ],
+                      ),
+              ),
+              DataCell(
+                MoneyText(
+                  line.refundFor(_quantities[line.saleItemId] ?? 0),
+                  size: 13,
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+
   Widget _refundPanel(BuildContext context) {
-    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -301,30 +320,37 @@ class _ReturnsPageState extends State<ReturnsPage> {
         ),
         if (_refundMethod == RefundMethod.credit &&
             _sale?.customerId == null) ...[
-          const SizedBox(height: 8),
-          Text(
-            'This bill has no customer on it, so there is no account to credit. '
-            'Choose a different refund method.',
-            style: TextStyle(color: theme.colorScheme.error, fontSize: 12.5),
+          const SizedBox(height: AppSpacing.md),
+          const Text(
+            'This bill has no customer on it, so there is no account to '
+            'credit. Choose a different refund method.',
+            style: TextStyle(color: AppColors.danger, fontSize: 12.5),
           ),
         ],
-        const SizedBox(height: 16),
+        const SizedBox(height: AppSpacing.xl),
         Row(
           children: [
-            Text(
-              'Refund ${AppFormatters.currency(_refundTotal)}',
-              style: theme.textTheme.headlineMedium,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'REFUNDING',
+                  style: AppTypography.microLabel.copyWith(
+                    color: AppColors.inkFaint,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                MoneyText(_refundTotal, size: 22, weight: FontWeight.w700),
+              ],
             ),
             const Spacer(),
-            FilledButton.icon(
+            AccentButton(
+              label: 'Take back and refund',
+              icon: Icons.assignment_return_outlined,
+              tall: true,
+              busy: _saving,
               onPressed: _canSubmit ? _submit : null,
-              icon: _saving
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.assignment_return),
-              label: const Text('Take back and refund'),
             ),
           ],
         ),

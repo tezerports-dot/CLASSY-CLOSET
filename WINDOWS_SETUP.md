@@ -1,4 +1,4 @@
-# Setting up RetailPro on the shop computer
+# Setting up Classy Closet on the shop computer
 
 This guide is written for someone who does not write code. Follow it top to
 bottom on the Windows PC that will sit at the counter. Nothing here needs the
@@ -6,7 +6,7 @@ internet once the app is installed.
 
 If you only want to hand a finished installer to the shop, read
 [BUILD_INSTALLER.md](BUILD_INSTALLER.md) instead — that explains how to turn
-this project into a single `RetailProSetup.exe`. This file covers doing it on
+this project into a single `ClassyClosetSetup.exe`. This file covers doing it on
 the shop machine directly.
 
 ---
@@ -24,7 +24,8 @@ Optional hardware, which you can add later:
 - A barcode scanner (any USB "keyboard wedge" model — it types the barcode
   like a keyboard, so it needs no driver).
 - A thermal receipt printer, 58 mm or 80 mm.
-- A cash drawer that plugs into the printer.
+- A cash drawer that plugs into the printer — entirely optional; the app is
+  set up for cash handled by hand.
 
 ---
 
@@ -83,7 +84,7 @@ so start it and make a cup of tea.
 5. Click **Install**. This takes 20–40 minutes.
 6. Restart the PC when it finishes.
 
-## Step 4 — Download RetailPro
+## Step 4 — Download Classy Closet
 
 1. Open Command Prompt.
 2. Type these lines, pressing Enter after each:
@@ -123,7 +124,7 @@ C:\CLASSY-CLOSET\build\windows\x64\runner\Release\classy_closet.exe
 1. Open that `Release` folder in File Explorer.
 2. Right-click `classy_closet.exe` → **Show more options** → **Send to** →
    **Desktop (create shortcut)**.
-3. Rename the shortcut on the desktop to `RetailPro`.
+3. Rename the shortcut on the desktop to `Classy Closet`.
 
 > Keep the whole `Release` folder together. The `.exe` needs the `.dll` files
 > and the `data` folder next to it. Do not move the `.exe` on its own.
@@ -136,7 +137,7 @@ the shortcut into the folder that opens.
 
 ## Step 7 — First run
 
-Double-click the RetailPro shortcut.
+Double-click the Classy Closet shortcut.
 
 ### 7a. Store setup
 
@@ -229,7 +230,7 @@ Click **Save GST settings**.
 
 Go to **Products** and click **Add design**.
 
-RetailPro is built for clothing, so you enter a **design** once and it creates
+Classy Closet is built for clothing, so you enter a **design** once and it creates
 every size and colour underneath it automatically.
 
 1. **Design code** — your own code, e.g. `KRT-001`.
@@ -265,26 +266,34 @@ Go to **POS**.
 2. Pick the customer, or leave it on **Walk-in Customer**.
 3. Choose **Cash**, **Card**, **UPI** or **Split**.
 4. For cash, type what the customer handed you — the change is worked out.
-5. Choose the paper under **Print on**:
-   - **Thermal 80 mm** — the usual counter receipt roll
-   - **Thermal 58 mm** — the narrow roll
-   - **A4 sheet** — a full tax invoice for a business customer
-6. Click **Checkout and print receipt**.
+5. To take money off the whole bill, type the amount in the gold **Discount**
+   box — in rupees, the way the customer hears it. "It came to 2,000, call it
+   1,800" means typing `200`. The tax is recalculated on the discounted value,
+   so the bill adds up.
+6. Click **Preview** first if you want to see the bill before it uses paper.
+7. Click **Checkout & print**.
 
-Windows shows its print dialog. Pick your printer and print.
+If you have set up a thermal printer under **Hardware**, the bill prints
+straight to the roll — no dialog, no clicking. If no thermal printer is
+configured, Windows shows its usual print dialog instead.
 
-> **Tip:** in the print dialog, tick "Remember my choice" if your printer
-> offers it, so you do not pick it every time.
+> **Someone stepped away mid-sale?** Click **Hold bill**, give it a name, and
+> serve the next customer. The **held** button at the top brings it back.
 
 ---
 
 ## Connecting the hardware
 
+**There is a screen for all of this.** Open **Hardware** in the sidebar. Each
+device says whether it is connected and has one button that proves it — you
+can test the scanner, print a test page and open the drawer without ringing up
+a real sale. Set the printer up there once and the shop is ready.
+
 ### Barcode scanner
 
 Plug it into a USB port. Windows recognises it as a keyboard — there is no
-driver to install. Test it by opening Notepad and scanning something; the
-number should appear.
+driver to install. Test it on the **Hardware** screen: scan anything and it
+tells you what it read and whether that tag is in your catalogue.
 
 ### Thermal receipt printer
 
@@ -293,14 +302,28 @@ number should appear.
    and similar all provide one).
 3. Open **Settings → Bluetooth & devices → Printers & scanners** and check it
    appears.
-4. Right-click it → **Printing preferences** → set the paper size to match
-   your roll (80 mm or 58 mm).
+4. In the app, open **Hardware → Receipt printer**. Pick the printer, set the
+   roll width to match what you bought (80 mm or 58 mm), and click **Print a
+   test page**. If the test page comes out, billing is ready.
 
-### Cash drawer
+Bills then print straight to the roll and are cut automatically. The shop logo
+prints at the top, and the bill carries a barcode so a return can be looked up
+by scanning it.
 
-The drawer plugs into the **RJ11 socket on the back of the receipt printer**,
-not into the PC. It opens when the printer tells it to. Automatic drawer
-opening is not wired up yet — see "What is not built yet" below.
+### Cash drawer — only if you have one
+
+**You do not need a cash drawer.** Plenty of shops keep the cash in a box
+under the counter and handle it by hand, and the app is set up that way out of
+the box: it never tries to open anything, and the till still reconciles at the
+end of the day because the count you type in is what it checks against.
+
+If you do add one later: the drawer plugs into the **RJ11 socket on the back
+of the receipt printer**, not into the PC, and opens when the printer tells it
+to. Turn it on under **Hardware → Cash drawer**, pick the pin your drawer uses
+(pin 2 suits almost everything; try pin 5 if nothing happens) and click **Open
+the drawer now** to test it. From then on it opens by itself on cash sales,
+and a **Drawer** button appears on the billing screen for giving change
+without a sale. Leave the setting off and neither appears.
 
 ---
 
@@ -337,9 +360,9 @@ ordinary zip — you can open it in Windows Explorer to check it is not empty.
 
 1. Go to **Settings → Backup & restore**.
 2. Click **Restore from a backup** and choose the zip.
-3. The app checks the file really is a RetailPro backup before doing anything.
+3. The app checks the file really is a Classy Closet backup before doing anything.
 4. Confirm. Your current data is copied aside first, so this can be undone.
-5. **Close and reopen RetailPro** to finish.
+5. **Close and reopen Classy Closet** to finish.
 
 > Restoring replaces everything currently in the app. Only do it if the
 > current data is lost or wrong.
@@ -356,7 +379,7 @@ the shop PC without opening any ports on the shop router:
 4. Point the tunnel at the shop PC.
 
 Note this gives you **remote access to the PC**, not a web version of
-RetailPro. The app itself stays on the counter machine, which is what keeps it
+Classy Closet. The app itself stays on the counter machine, which is what keeps it
 working when the internet drops.
 
 ---
@@ -398,6 +421,10 @@ Beyond billing, these are wired up and working:
 | **Till** | Open with a counted float, record cash paid in or out during the day, then close by counting the drawer. The difference is recorded against whoever was on the counter. |
 | **Expenses** | Rent, wages, electricity. This is what turns gross margin into real net profit on the reports. |
 | **Reports** | Sales register, GST by rate, HSN summary, best sellers and dead stock, for any date range. Every table exports to CSV for your accountant. |
+| **Stock count** | Scan the rails and record what is actually there. The count can be picked up again the next day, and sales carry on while you count. Applying it writes the difference off. |
+| **Customers** | A running account for regulars. Take a payment against a balance, and print a statement of account with a running balance. |
+| **Suppliers** | The same, the other way round — what you still owe each wholesaler, and payments against it. |
+| **Hardware** | Scanner, receipt printer, cash drawer and label printer, each with a test button. |
 | **Print labels** | On any design in Products. Barcode price labels for the whole size run, on A4 label sheets or a label roll. |
 
 ### Printing barcode labels
@@ -429,14 +456,11 @@ That is the whole end-of-day routine.
 
 Be aware of these before you rely on the app for everything:
 
-- **Printing goes through the Windows print dialog.** Direct thermal ESC/POS
-  printing and automatic cash-drawer opening are not wired up, so there is a
-  print dialog on every sale. The drawer has to be opened by its key or by the
-  printer's own button.
-- **No physical stock count.** You can correct a count by editing the design's
-  grid, but there is no scan-and-count session with a variance report.
-- **No customer or supplier statement to print.** Balances are shown on screen
-  but cannot be handed to someone as a document.
+- **The card machine does not talk to the app.** You type the transaction
+  reference from the machine's slip into the bill, and it is printed and
+  stored so a charge disputed weeks later can be traced. An automatic Paytm
+  EDC handshake needs merchant credentials and their Windows API, which is not
+  wired up.
 - **No loyalty points or promotions.**
 - **No e-invoicing (IRN/QR).** Only relevant above a turnover threshold —
   check with your accountant whether it applies to you.

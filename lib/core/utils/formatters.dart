@@ -34,6 +34,7 @@ class AppFormatters {
 
   static final _dateTime = DateFormat('dd MMM y, h:mm a');
   static final _date = DateFormat('dd MMM y');
+  static final _time = DateFormat('h:mm:ss a');
 
   static String currency(num value) => _currency.format(value);
 
@@ -42,6 +43,10 @@ class AppFormatters {
 
   static String dateTime(DateTime value) => _dateTime.format(value);
   static String date(DateTime value) => _date.format(value);
+
+  /// Clock time alone, for things that happened within the shift — the last
+  /// scan, the last print — where the date is understood to be today.
+  static String time(DateTime value) => _time.format(value);
 
   static String quantity(num value) => value == value.roundToDouble()
       ? value.toStringAsFixed(0)

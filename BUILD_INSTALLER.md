@@ -1,6 +1,6 @@
 # Turning this project into a Windows installer
 
-The goal here is one file — `RetailProSetup.exe` — that you can copy to a shop
+The goal here is one file — `ClassyClosetSetup.exe` — that you can copy to a shop
 PC on a pen drive. The shop machine then needs **no** Flutter, no Git, no
 Visual Studio. Someone double-clicks the installer and gets a working till
 with a Start-menu entry and a desktop icon.
@@ -77,7 +77,7 @@ if (!window.Create(L"classy_closet", origin, size)) {
 Change the text to what the shopkeeper should see:
 
 ```cpp
-if (!window.Create(L"RetailPro", origin, size)) {
+if (!window.Create(L"Classy Closet", origin, size)) {
 ```
 
 ### The file properties
@@ -107,10 +107,10 @@ Notepad is fine — save it as `installer.iss` with **Save as type: All Files**,
 so it does not become `installer.iss.txt`.
 
 ```ini
-; Inno Setup script for RetailPro
+; Inno Setup script for Classy Closet
 ; Build with: iscc installer.iss
 
-#define AppName        "RetailPro"
+#define AppName        "Classy Closet"
 #define AppVersion     "1.0.0"
 #define AppPublisher   "Classy Closet"
 #define AppExeName     "classy_closet.exe"
@@ -123,7 +123,7 @@ AppPublisher={#AppPublisher}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 OutputDir=installer
-OutputBaseFilename=RetailProSetup
+OutputBaseFilename=ClassyClosetSetup
 Compression=lzma2
 SolidCompression=yes
 ; The app is 64-bit only.
@@ -140,7 +140,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; \
     GroupDescription: "Shortcuts:"
-Name: "startupicon"; Description: "Start RetailPro when Windows starts"; \
+Name: "startupicon"; Description: "Start Classy Closet when Windows starts"; \
     GroupDescription: "Shortcuts:"; Flags: unchecked
 
 [Files]
@@ -159,7 +159,7 @@ Name: "{userstartup}\{#AppName}";        Filename: "{app}\{#AppExeName}"; \
 
 [Run]
 Filename: "{app}\{#AppExeName}"; \
-    Description: "Open RetailPro now"; \
+    Description: "Open Classy Closet now"; \
     Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
@@ -182,7 +182,7 @@ cd C:\CLASSY-CLOSET
 Your installer appears at:
 
 ```
-C:\CLASSY-CLOSET\installer\RetailProSetup.exe
+C:\CLASSY-CLOSET\installer\ClassyClosetSetup.exe
 ```
 
 That single file is what you copy to the shop.
@@ -194,14 +194,14 @@ That single file is what you copy to the shop.
 
 ## Part 6 — Install it at the shop
 
-1. Copy `RetailProSetup.exe` to a pen drive.
+1. Copy `ClassyClosetSetup.exe` to a pen drive.
 2. On the shop PC, double-click it.
 3. Windows shows a blue **"Windows protected your PC"** box. This is expected
    for software that has not been code-signed. Click **More info** →
    **Run anyway**.
 4. Follow the wizard. Tick the desktop shortcut, and the startup shortcut if
    you want it to open with the PC.
-5. RetailPro opens. Continue from **Step 7 — First run** in
+5. Classy Closet opens. Continue from **Step 7 — First run** in
    [WINDOWS_SETUP.md](WINDOWS_SETUP.md).
 
 ### Getting rid of the warning
@@ -243,5 +243,5 @@ flutter build windows --release
 "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 
 :: Result
-installer\RetailProSetup.exe
+installer\ClassyClosetSetup.exe
 ```

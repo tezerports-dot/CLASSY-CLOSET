@@ -228,6 +228,15 @@ class Sales extends Table {
 
   /// The till session this sale belongs to, so the drawer can be reconciled.
   IntColumn get shiftId => integer().nullable().references(Shifts, #id)();
+
+  /// What the card machine or UPI app called this transaction — the Paytm
+  /// transaction ID, the bank RRN, the UPI reference. Printing it on the bill
+  /// and keeping it here is what lets a disputed charge weeks later be matched
+  /// back to the sale it paid for.
+  TextColumn get paymentReference => text().nullable()();
+
+  /// Which terminal or account took it, when the shop has more than one.
+  TextColumn get paymentTerminal => text().nullable()();
   DateTimeColumn get soldAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -408,6 +417,93 @@ class AuditLogs extends Table {
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+/// Money settled with a customer or a supplier outside a sale or a delivery.
+///
+/// A credit sale grows a customer's balance and an unpaid delivery grows what
+/// the shop owes; without this table neither could ever be brought back down.
+@DataClassName('PartyPaymentRow')
+class PartyPayments extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  /// 'customer' for money taken in, 'supplier' for money paid out.
+  TextColumn get partyType => text().withLength(min: 1, max: 16)();
+  IntColumn get partyId => integer()();
+
+  /// Voucher number, unique across both kinds so it can be quoted on paper.
+  TextColumn get reference => text().unique()();
+  RealColumn get amount => real()();
+  TextColumn get method => text().withDefault(const Constant('cash'))();
+  TextColumn get notes => text().nullable()();
+  IntColumn get userId => integer().nullable().references(Users, #id)();
+  DateTimeColumn get paidAt => dateTime().withDefault(currentDateAndTime)();
+}
+
+/// A physical count of the rails, held open while the counting happens.
+///
+/// Counting a shop takes longer than one sitting, and sales carry on while it
+/// does — so the count is a session that can be picked back up, and the system
+/// figure each line is compared against is captured at the moment that line was
+/// counted rather than at the end.
+@DataClassName('StocktakeRow')
+class Stocktakes extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get reference => text().unique()();
+
+  /// 'open', 'committed' or 'abandoned'.
+  TextColumn get status => text().withDefault(const Constant('open'))();
+  TextColumn get notes => text().nullable()();
+  IntColumn get userId => integer().nullable().references(Users, #id)();
+  DateTimeColumn get startedAt => dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get committedAt => dateTime().nullable()();
+}
+
+@DataClassName('StocktakeItemRow')
+class StocktakeItems extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get stocktakeId =>
+      integer().references(Stocktakes, #id, onDelete: KeyAction.cascade)();
+  IntColumn get productId => integer().references(Products, #id)();
+
+  /// What the books said at the moment this line was counted.
+  RealColumn get systemQuantity => real()();
+  RealColumn get countedQuantity => real()();
+
+  /// Cost captured at count time, so the shrinkage figure survives a later
+  /// price change.
+  RealColumn get costPrice => real().withDefault(const Constant(0))();
+  DateTimeColumn get countedAt => dateTime().withDefault(currentDateAndTime)();
+}
+
+/// A bill parked mid-sale.
+///
+/// A customer goes to try something on and the counter has to serve the next
+/// person. Without this the assistant either makes them wait or loses the
+/// basket, so a held bill has to outlive a restart — the shop's power is not
+/// reliable and a crash must not cost a full trolley.
+@DataClassName('HeldBillRow')
+class HeldBills extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  /// What the counter calls it — a name, a phone, "blue shirt man".
+  TextColumn get label => text().withLength(min: 1, max: 80)();
+  IntColumn get customerId => integer().nullable().references(Customers, #id)();
+  IntColumn get userId => integer().nullable().references(Users, #id)();
+  DateTimeColumn get heldAt => dateTime().withDefault(currentDateAndTime)();
+}
+
+@DataClassName('HeldBillItemRow')
+class HeldBillItems extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get heldBillId =>
+      integer().references(HeldBills, #id, onDelete: KeyAction.cascade)();
+  IntColumn get productId => integer().references(Products, #id)();
+  IntColumn get quantity => integer()();
+
+  /// Any discount already given on the line, kept so recalling restores the
+  /// bill exactly as it was left.
+  RealColumn get discount => real().withDefault(const Constant(0))();
+}
+
 @DataClassName('SettingRow')
 class Settings extends Table {
   TextColumn get key => text()();
@@ -441,6 +537,11 @@ class Settings extends Table {
     ReturnItems,
     Shifts,
     CashMovements,
+    PartyPayments,
+    Stocktakes,
+    StocktakeItems,
+    HeldBills,
+    HeldBillItems,
     Expenses,
     ExpenseCategories,
     CashBook,
@@ -458,7 +559,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.withExecutor(super.executor);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -503,6 +604,25 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(returnItems, returnItems.taxAmount);
         await m.addColumn(returnItems, returnItems.costPrice);
         await m.addColumn(returnItems, returnItems.hsnCode);
+      }
+      if (from < 4) {
+        // v4 lets money be settled against a customer or supplier balance.
+        await m.createTable(partyPayments);
+      }
+      if (from < 5) {
+        // v5 adds physical stock counts and the adjustments they produce.
+        await m.createTable(stocktakes);
+        await m.createTable(stocktakeItems);
+      }
+      if (from < 6) {
+        // v6 ties a bill to the card or UPI transaction that paid it.
+        await m.addColumn(sales, sales.paymentReference);
+        await m.addColumn(sales, sales.paymentTerminal);
+      }
+      if (from < 7) {
+        // v7 lets a bill be parked while the customer tries something on.
+        await m.createTable(heldBills);
+        await m.createTable(heldBillItems);
       }
     },
     beforeOpen: (details) async {
