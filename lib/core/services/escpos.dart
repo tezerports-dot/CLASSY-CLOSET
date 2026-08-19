@@ -368,6 +368,87 @@ class EscPosBuilder {
       value.length <= width ? value : value.substring(0, width);
 }
 
+/// Reads a finished job back as the text the printer will put on the paper.
+///
+/// This is what the on-screen bill preview renders, so the preview shows the
+/// actual byte stream rather than a second layout that could drift from it.
+/// Command sequences are stepped over by length — parameters are ordinary
+/// bytes and many are printable, so filtering by value alone would leave
+/// debris like the `1` from `ESC E 1` scattered through the text.
+///
+/// Anything drawn rather than typed — a logo raster, a barcode, a QR — is
+/// reported through [onGraphic] instead of being turned into gibberish.
+String renderEscPosAsText(
+  List<int> job, {
+  void Function(EscPosGraphic graphic)? onGraphic,
+}) {
+  final out = StringBuffer();
+  var i = 0;
+  while (i < job.length) {
+    final byte = job[i];
+    if (byte != 0x1B && byte != 0x1D) {
+      if (byte == 0x0A) {
+        out.write('\n');
+      } else if (byte >= 0x20 && byte <= 0x7E) {
+        out.writeCharCode(byte);
+      }
+      i++;
+      continue;
+    }
+
+    final length = _commandLength(job, i);
+    if (length <= 0) break;
+
+    // Feeds are the one command that puts something on the paper.
+    if (byte == 0x1B && i + 1 < job.length && job[i + 1] == 0x64) {
+      out.write('\n' * job[i + 2]);
+    } else if (byte == 0x1D && i + 2 < job.length) {
+      final second = job[i + 1];
+      if (second == 0x6B) {
+        onGraphic?.call(EscPosGraphic.barcode);
+      } else if (second == 0x76) {
+        onGraphic?.call(EscPosGraphic.image);
+      } else if (second == 0x28 && job[i + 2] == 0x6B) {
+        // Only the print sub-command marks a finished QR.
+        if (i + 7 < job.length && job[i + 6] == 0x51) {
+          onGraphic?.call(EscPosGraphic.qr);
+        }
+      }
+    }
+    i += length;
+  }
+  return out.toString();
+}
+
+/// Something drawn on the receipt rather than typed.
+enum EscPosGraphic { image, barcode, qr }
+
+/// How many bytes the command starting at [at] occupies.
+int _commandLength(List<int> job, int at) {
+  if (at + 1 >= job.length) return job.length - at;
+  final key = (job[at] << 8) | job[at + 1];
+  const fixed = <int, int>{
+    0x1B40: 2, // ESC @
+    0x1B74: 3, 0x1B61: 3, 0x1B45: 3, 0x1B2D: 3, 0x1B64: 3,
+    0x1B42: 4, // ESC B
+    0x1B70: 5, // ESC p
+    0x1D21: 3, 0x1D56: 3, 0x1D48: 3, 0x1D68: 3, 0x1D77: 3,
+  };
+  final known = fixed[key];
+  if (known != null) return known;
+  if (key == 0x1D6B && at + 3 < job.length) return 4 + job[at + 3];
+  if (key == 0x1D28 && at + 4 < job.length && job[at + 2] == 0x6B) {
+    return 5 + (job[at + 3] | (job[at + 4] << 8));
+  }
+  if (key == 0x1D76 && at + 7 < job.length && job[at + 2] == 0x30) {
+    final bytesPerRow = job[at + 4] | (job[at + 5] << 8);
+    final rows = job[at + 6] | (job[at + 7] << 8);
+    return 8 + bytesPerRow * rows;
+  }
+  // An unrecognised escape: step over the two bytes rather than stalling.
+  return 2;
+}
+
 /// Splits [text] into lines of at most [width] characters, breaking between
 /// words where it can and mid-word only when a single word is too long.
 List<String> wrap(String text, int width) {

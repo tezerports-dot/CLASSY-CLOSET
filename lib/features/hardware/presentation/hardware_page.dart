@@ -7,6 +7,7 @@ import '../../../core/services/escpos.dart';
 import '../../../core/services/printer_service.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/ui_kit.dart';
 
 /// Everything plugged into the counter, in one place.
@@ -194,6 +195,15 @@ class _HardwarePageState extends State<HardwarePage> {
                                   match.displayName,
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.bodySmall,
+                                ),
+                              ),
+                            ],
+                            if (_lastScanAt != null) ...[
+                              const Text('  ·  '),
+                              Text(
+                                'read at ${AppFormatters.time(_lastScanAt!)}',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: AppColors.inkFaint,
                                 ),
                               ),
                             ],
