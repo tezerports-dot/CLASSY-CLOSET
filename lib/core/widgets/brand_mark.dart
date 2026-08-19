@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
@@ -100,22 +102,41 @@ class _HangerPainter extends CustomPainter {
 }
 
 /// The supplied artwork, for the two places a real photograph belongs.
+///
+/// A shop that has uploaded its own logo under Settings gets that instead —
+/// this build is deployed to more than one shop, and the second one is not
+/// Classy Closet.
 class ClassyClosetPhotoMark extends StatelessWidget {
-  const ClassyClosetPhotoMark({super.key, this.size = 120});
+  const ClassyClosetPhotoMark({super.key, this.size = 120, this.path});
 
   final double size;
 
+  /// A logo file chosen in the store profile. Falls back to the bundled mark.
+  final String? path;
+
   @override
-  Widget build(BuildContext context) => ClipOval(
-    child: Image.asset(
+  Widget build(BuildContext context) {
+    final bundled = Image.asset(
       'assets/brand/classy-closet-mark.jpg',
       width: size,
       height: size,
       fit: BoxFit.cover,
       // A missing asset must never take a screen down with it.
-      errorBuilder: (_, __, ___) => BrandMark(size: size),
-    ),
-  );
+      errorBuilder: (_, _, _) => BrandMark(size: size),
+    );
+    final chosen = path;
+    return ClipOval(
+      child: chosen == null || !File(chosen).existsSync()
+          ? bundled
+          : Image.file(
+              File(chosen),
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => bundled,
+            ),
+    );
+  }
 }
 
 /// The wordmark: name, then the two lines of the shop's own strapline.
@@ -126,6 +147,7 @@ class ClassyClosetPhotoMark extends StatelessWidget {
 class BrandWordmark extends StatelessWidget {
   const BrandWordmark({
     super.key,
+    this.name = 'CLASSY CLOSET',
     this.size = 15,
     this.color = AppColors.brandInk,
     this.subColor = AppColors.brandInkFaint,
@@ -133,6 +155,10 @@ class BrandWordmark extends StatelessWidget {
     this.tagline,
     this.align = CrossAxisAlignment.start,
   });
+
+  /// The shop's own name. The same build runs in more than one shop, so this
+  /// comes from the store profile wherever the profile has been loaded.
+  final String name;
 
   final double size;
   final Color color;
@@ -150,7 +176,10 @@ class BrandWordmark extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          'CLASSY CLOSET',
+          name,
+          textAlign: align == CrossAxisAlignment.center
+              ? TextAlign.center
+              : TextAlign.start,
           style: AppTypography.wordmark.copyWith(fontSize: size, color: color),
         ),
         if (subtitle != null) ...[

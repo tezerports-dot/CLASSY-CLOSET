@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import '../../../app/di/injection.dart';
 import '../../../core/services/reports.dart';
 import '../../../core/services/retail_store.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
-import '../../../core/widgets/section_card.dart';
+import '../../../core/widgets/ui_kit.dart';
 
 /// Rent, wages, electricity — everything that is not stock.
 ///
@@ -59,18 +60,58 @@ class _ExpensesPageState extends State<ExpensesPage> {
       builder: (context, _) {
         final month = DateRange.thisMonth();
         final spentThisMonth = _store.expensesBetween(month.from, month.to);
+        final today = DateTime.now();
+        final spentToday = _store.expensesBetween(
+          DateTime(today.year, today.month, today.day),
+          DateTime(today.year, today.month, today.day + 1),
+        );
         return SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(AppSpacing.xxl),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SectionCard(
-                title: 'Record what you spent',
-                actions: [
-                  Text(
-                    '${AppFormatters.currency(spentThisMonth)} this month',
-                    style: Theme.of(context).textTheme.titleMedium,
+              const PageHeader(
+                title: 'Expenses',
+                subtitle:
+                    'Rent, wages, electricity — everything that is not stock. '
+                    'These are what turn gross margin into real profit.',
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: KpiCard(
+                      label: 'Spent this month',
+                      value: AppFormatters.currency(spentThisMonth),
+                      caption: 'Since ${AppFormatters.date(month.from)}',
+                      icon: Icons.calendar_month_outlined,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.xl),
+                  Expanded(
+                    child: KpiCard(
+                      label: 'Spent today',
+                      value: AppFormatters.currency(spentToday),
+                      caption: AppFormatters.date(today),
+                      icon: Icons.today_outlined,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.xl),
+                  Expanded(
+                    child: KpiCard(
+                      label: 'Entries recorded',
+                      value: '${_store.expenses.length}',
+                      caption: 'All time',
+                      icon: Icons.receipt_outlined,
+                    ),
                   ),
                 ],
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              SectionCard(
+                title: 'Record what you spent',
+                subtitle:
+                    'One line per payment. Pick a category so the report can '
+                    'group them.',
                 child: Form(
                   key: _formKey,
                   child: Column(
@@ -173,73 +214,91 @@ class _ExpensesPageState extends State<ExpensesPage> {
                         ],
                       ),
                       if (_error != null) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          _error!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                          ),
+                        const SizedBox(height: AppSpacing.md),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.error_outline_rounded,
+                              size: 15,
+                              color: AppColors.danger,
+                            ),
+                            const SizedBox(width: AppSpacing.xs),
+                            Text(
+                              _error!,
+                              style: const TextStyle(color: AppColors.danger),
+                            ),
+                          ],
                         ),
                       ],
-                      const SizedBox(height: 16),
-                      FilledButton.icon(
-                        onPressed: _saving ? null : _save,
-                        icon: _saving
-                            ? const SizedBox.square(
-                                dimension: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.add),
-                        label: const Text('Record expense'),
+                      const SizedBox(height: AppSpacing.xl),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: AccentButton(
+                          label: 'Record expense',
+                          icon: Icons.add_rounded,
+                          busy: _saving,
+                          onPressed: _save,
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: AppSpacing.xl),
               SectionCard(
                 title: 'What you have spent',
-                child: _store.expenses.isEmpty
-                    ? const Text('Nothing recorded yet.')
-                    : SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: DataTable(
-                          columns: const [
-                            DataColumn(label: Text('Date')),
-                            DataColumn(label: Text('Category')),
-                            DataColumn(label: Text('What for')),
-                            DataColumn(label: Text('Amount')),
-                            DataColumn(label: Text('Notes')),
-                            DataColumn(label: Text('')),
-                          ],
-                          rows: [
-                            for (final e in _store.expenses.take(100))
-                              DataRow(
-                                cells: [
-                                  DataCell(Text(AppFormatters.date(e.spentAt))),
-                                  DataCell(Text(e.category)),
-                                  DataCell(Text(e.title)),
-                                  DataCell(
-                                    Text(AppFormatters.currency(e.amount)),
-                                  ),
-                                  DataCell(Text(e.notes ?? '')),
-                                  DataCell(
-                                    IconButton(
-                                      tooltip: 'Remove',
-                                      icon: const Icon(
-                                        Icons.delete_outline,
-                                        size: 18,
-                                      ),
-                                      onPressed: () => _confirmDelete(e),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                          ],
-                        ),
+                subtitle: _store.expenses.length > 100
+                    ? 'The 100 most recent. Older entries stay in the reports.'
+                    : null,
+                child: AppTable(
+                  minWidth: 820,
+                  empty: const EmptyState(
+                    icon: Icons.savings_outlined,
+                    title: 'Nothing recorded yet',
+                    message:
+                        'Record the shop rent, the electricity bill and the '
+                        'wages as you pay them, and the profit figure in '
+                        'Reports becomes the real one.',
+                  ),
+                  columns: const [
+                    DataColumn(label: Text('DATE')),
+                    DataColumn(label: Text('CATEGORY')),
+                    DataColumn(label: Text('WHAT FOR')),
+                    DataColumn(label: Text('AMOUNT'), numeric: true),
+                    DataColumn(label: Text('NOTES')),
+                    DataColumn(label: Text('')),
+                  ],
+                  rows: [
+                    for (final e in _store.expenses.take(100))
+                      DataRow(
+                        cells: [
+                          DataCell(Text(AppFormatters.date(e.spentAt))),
+                          DataCell(
+                            e.category.isEmpty
+                                ? const Text('—')
+                                : StatusPill(e.category),
+                          ),
+                          DataCell(Text(e.title)),
+                          DataCell(MoneyText(e.amount, size: 13)),
+                          DataCell(
+                            Text(
+                              (e.notes ?? '').isEmpty ? '—' : e.notes!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          DataCell(
+                            IconButton(
+                              tooltip: 'Remove',
+                              icon: const Icon(Icons.delete_outline, size: 18),
+                              color: AppColors.danger,
+                              onPressed: () => _confirmDelete(e),
+                            ),
+                          ),
+                        ],
                       ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -300,6 +359,7 @@ class _ExpensesPageState extends State<ExpensesPage> {
             child: const Text('Cancel'),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
             onPressed: () => Navigator.of(context).pop(true),
             child: const Text('Remove'),
           ),

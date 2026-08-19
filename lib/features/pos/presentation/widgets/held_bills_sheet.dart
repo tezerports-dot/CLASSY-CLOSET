@@ -63,7 +63,7 @@ class _HeldBillsSheetState extends State<HeldBillsSheet> {
                       children: [
                         Text(
                           'Held bills',
-                          style: theme.textTheme.headlineSmall,
+                          style: theme.textTheme.headlineMedium,
                         ),
                         const SizedBox(height: 2),
                         Text(
