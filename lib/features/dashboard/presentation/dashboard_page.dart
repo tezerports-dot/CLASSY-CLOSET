@@ -65,7 +65,9 @@ class _DashboardPageState extends State<DashboardPage> {
                     KpiCard(
                       label: 'Sales',
                       value: AppFormatters.currency(summary.total),
-                      caption: '${summary.count} bill(s)',
+                      caption:
+                          '${summary.count} bill'
+                          '${summary.count == 1 ? '' : 's'}',
                       icon: Icons.receipt_long_rounded,
                     ),
                     if (showProfit)
@@ -88,7 +90,9 @@ class _DashboardPageState extends State<DashboardPage> {
                     KpiCard(
                       label: 'Average bill',
                       value: AppFormatters.currency(summary.averageBill),
-                      caption: 'Across ${summary.count} bill(s)',
+                      caption:
+                          'Across ${summary.count} bill'
+                          '${summary.count == 1 ? '' : 's'}',
                       icon: Icons.calculate_rounded,
                     ),
                   ]),
@@ -112,7 +116,9 @@ class _DashboardPageState extends State<DashboardPage> {
                     KpiCard(
                       label: 'Stock value',
                       value: AppFormatters.currency(_store.inventoryValue),
-                      caption: '${_store.products.length} item(s) on hand',
+                      caption:
+                          '${_store.products.length} item'
+                          '${_store.products.length == 1 ? '' : 's'} on hand',
                       icon: Icons.inventory_2_rounded,
                     ),
                   ]),
@@ -157,7 +163,21 @@ class _DashboardPageState extends State<DashboardPage> {
             ],
           ),
         ),
-        if (!narrow)
+        // On a narrow screen the segmented control does not fit, but the
+        // period still has to be changeable — so it becomes a dropdown rather
+        // than disappearing.
+        if (narrow)
+          DropdownButton<_Period>(
+            value: _period,
+            underline: const SizedBox.shrink(),
+            borderRadius: AppRadii.cardBorder,
+            items: [
+              for (final p in _Period.values)
+                DropdownMenuItem(value: p, child: Text(p.label)),
+            ],
+            onChanged: (p) => setState(() => _period = p ?? _period),
+          )
+        else
           SegmentedButton<_Period>(
             segments: [
               for (final p in _Period.values)
@@ -172,7 +192,6 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _kpiGrid(int columns, List<Widget> cards) {
-    final visible = cards.where((c) => true).toList();
     return LayoutBuilder(
       builder: (context, constraints) {
         const gap = AppSpacing.base;
@@ -181,7 +200,7 @@ class _DashboardPageState extends State<DashboardPage> {
           spacing: gap,
           runSpacing: gap,
           children: [
-            for (final card in visible)
+            for (final card in cards)
               SizedBox(
                 width: width > 0 ? width : constraints.maxWidth,
                 child: card,

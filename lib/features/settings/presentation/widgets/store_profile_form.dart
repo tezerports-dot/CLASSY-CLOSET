@@ -5,7 +5,10 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/services/gst.dart';
 import '../../../../core/services/retail_store.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_typography.dart';
 import '../../../../core/utils/validators.dart';
+import '../../../../core/widgets/ui_kit.dart';
 
 class StoreProfileForm extends StatefulWidget {
   const StoreProfileForm({
@@ -38,6 +41,7 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
   late final TextEditingController _jurisdiction;
   String? _logoPath;
   String? _stateCode;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -103,20 +107,53 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (logo != null) ...[
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Image.file(
-                logo,
-                width: 96,
-                height: 96,
-                fit: BoxFit.contain,
+          _groupLabel('Who you are'),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // The logo sits beside the name it belongs to rather than
+              // floating above the form.
+              Column(
+                children: [
+                  Container(
+                    width: 92,
+                    height: 92,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceAlt,
+                      borderRadius: AppRadii.inputBorder,
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: logo == null
+                        ? const Icon(
+                            Icons.storefront_outlined,
+                            size: 30,
+                            color: AppColors.border,
+                          )
+                        : Image.file(logo, fit: BoxFit.contain),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextButton(
+                    onPressed: _pickLogo,
+                    child: Text(_logoPath == null ? 'Add logo' : 'Change'),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          _field(_storeName, 'Store name', validator: Validators.requiredText),
-          _field(_address, 'Address', maxLines: 3),
+              const SizedBox(width: AppSpacing.xl),
+              Expanded(
+                child: Column(
+                  children: [
+                    _field(
+                      _storeName,
+                      'Shop name',
+                      validator: Validators.requiredText,
+                    ),
+                    _field(_address, 'Address', maxLines: 3),
+                  ],
+                ),
+              ),
+            ],
+          ),
           Row(
             children: [
               Expanded(child: _field(_phone, 'Phone')),
@@ -142,24 +179,13 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
               ),
             ],
           ),
-          const Divider(height: 28),
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'GST registration',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
+          const Divider(height: 32),
+          _groupLabel(
+            'GST registration',
+            hint:
+                'Enter your GSTIN to print bills as a tax invoice. Leave it '
+                'blank and bills print as a plain receipt instead.',
           ),
-          const SizedBox(height: 4),
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Enter your GSTIN to print bills as a tax invoice. Leave it blank '
-              'and bills print as a plain receipt instead.',
-              style: TextStyle(fontSize: 12.5),
-            ),
-          ),
-          const SizedBox(height: 12),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -211,7 +237,13 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
               ),
             ],
           ),
-          const Divider(height: 28),
+          const Divider(height: 32),
+          _groupLabel(
+            'What prints on the bill',
+            hint:
+                'The tagline sits under the shop name; the rest print at the '
+                'foot of the bill.',
+          ),
           _field(_receiptNumberPrefix, 'Invoice number prefix (e.g. CC)'),
           _field(
             _tagline,
@@ -238,21 +270,43 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
             'Bank details for business buyers (optional)',
             maxLines: 3,
           ),
-          OutlinedButton.icon(
-            onPressed: _pickLogo,
-            icon: const Icon(Icons.image),
-            label: Text(_logoPath == null ? 'Choose logo' : 'Change logo'),
-          ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: _save,
-            icon: const Icon(Icons.save),
-            label: const Text('Save store profile'),
+          const SizedBox(height: AppSpacing.md),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: AccentButton(
+              label: 'Save shop profile',
+              icon: Icons.save_outlined,
+              tall: true,
+              busy: _saving,
+              onPressed: _save,
+            ),
           ),
         ],
       ),
     );
   }
+
+  /// A heading inside the form, so a long profile reads as three short
+  /// sections rather than twenty consecutive boxes.
+  Widget _groupLabel(String title, {String? hint}) => Padding(
+    padding: const EdgeInsets.only(bottom: AppSpacing.base),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title.toUpperCase(),
+          style: AppTypography.microLabel.copyWith(color: AppColors.goldDeep),
+        ),
+        if (hint != null) ...[
+          const SizedBox(height: 3),
+          Text(
+            hint,
+            style: const TextStyle(fontSize: 12.5, color: AppColors.inkFaint),
+          ),
+        ],
+      ],
+    ),
+  );
 
   Widget _field(
     TextEditingController controller,
@@ -286,6 +340,7 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
     await widget.store.saveStoreProfile(
       StoreProfile(
         storeName: _storeName.text.trim(),
@@ -306,6 +361,7 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
         stateCode: _stateCode,
       ),
     );
+    if (mounted) setState(() => _saving = false);
     widget.onSaved();
   }
 }

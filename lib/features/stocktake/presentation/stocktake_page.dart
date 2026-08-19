@@ -4,7 +4,9 @@ import '../../../app/di/injection.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/services/stocktake.dart';
 import '../../../core/utils/formatters.dart';
-import '../../../core/widgets/section_card.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/ui_kit.dart';
 
 /// Counting the rails and putting the books right afterwards.
 class StocktakePage extends StatefulWidget {
@@ -40,16 +42,29 @@ class _StocktakePageState extends State<StocktakePage> {
       builder: (context, _) {
         final session = _store.openStocktake;
         return SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(AppSpacing.xxl),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              PageHeader(
+                title: 'Stock count',
+                subtitle:
+                    'Count what is actually on the rails, then apply the count '
+                    'so the books match.',
+                actions: [
+                  StatusPill(
+                    session == null ? 'No count open' : 'Counting',
+                    tone: session == null ? PillTone.neutral : PillTone.caution,
+                  ),
+                ],
+              ),
               if (session == null)
                 _startCard(context)
               else
                 _countCard(context, session),
-              const SizedBox(height: 16),
+              const SizedBox(height: AppSpacing.xl),
               _adjustCard(context),
-              const SizedBox(height: 16),
+              const SizedBox(height: AppSpacing.xl),
               _historyCard(context),
             ],
           ),
@@ -61,28 +76,26 @@ class _StocktakePageState extends State<StocktakePage> {
   // ------------------------------------------------------------ starting up
 
   Widget _startCard(BuildContext context) => SectionCard(
-    title: 'Stock count',
     child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Count what is actually on the rails, then apply the count so the '
-          'books match. Sales carry on as normal while you count — each line '
-          'is compared against the stock figure at the moment you enter it.',
+        EmptyState(
+          icon: Icons.playlist_add_check_rounded,
+          title: 'No count in progress',
+          message:
+              'Sales carry on as normal while you count — each line is '
+              'compared against the stock figure at the moment you enter it, '
+              'so a sale rung up mid-count is not read as shrinkage.',
+          action: AccentButton(
+            label: 'Start a count',
+            icon: Icons.playlist_add_check_rounded,
+            busy: _busy,
+            onPressed: _start,
+          ),
         ),
         if (_error != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            _error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
+          const SizedBox(height: AppSpacing.base),
+          Text(_error!, style: const TextStyle(color: AppColors.danger)),
         ],
-        const SizedBox(height: 16),
-        FilledButton.icon(
-          onPressed: _busy ? null : _start,
-          icon: const Icon(Icons.playlist_add_check),
-          label: const Text('Start a count'),
-        ),
       ],
     ),
   );
@@ -93,19 +106,22 @@ class _StocktakePageState extends State<StocktakePage> {
     final theme = Theme.of(context);
     return SectionCard(
       title: 'Counting — ${session.reference}',
+      subtitle:
+          'Scan or search for a garment, type what is on the rail, and press '
+          'Record. Nothing moves on the books until you apply the count.',
       actions: [
-        OutlinedButton.icon(
+        SecondaryButton(
+          label: 'Abandon',
+          icon: Icons.close_rounded,
+          tone: AppColors.danger,
           onPressed: _busy ? null : () => _abandon(session),
-          icon: const Icon(Icons.close),
-          label: const Text('Abandon'),
         ),
-        const SizedBox(width: 8),
-        FilledButton.icon(
-          onPressed: _busy || session.lines.isEmpty
-              ? null
-              : () => _commit(session),
-          icon: const Icon(Icons.check),
-          label: const Text('Apply the count'),
+        const SizedBox(width: AppSpacing.sm),
+        AccentButton(
+          label: 'Apply the count',
+          icon: Icons.check_rounded,
+          busy: _busy,
+          onPressed: session.lines.isEmpty ? null : () => _commit(session),
         ),
       ],
       child: Column(
@@ -140,14 +156,17 @@ class _StocktakePageState extends State<StocktakePage> {
                   onSubmitted: (_) => _saveCount(session),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpacing.base),
               Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: FilledButton(
-                  onPressed: _selected == null || _busy
+                padding: const EdgeInsets.only(top: 4),
+                child: AccentButton(
+                  label: 'Record',
+                  icon: Icons.add_task_rounded,
+                  tall: true,
+                  busy: _busy,
+                  onPressed: _selected == null
                       ? null
                       : () => _saveCount(session),
-                  child: const Text('Record'),
                 ),
               ),
             ],
@@ -164,103 +183,139 @@ class _StocktakePageState extends State<StocktakePage> {
           else if (_search.text.trim().isNotEmpty)
             _matches(),
           if (_error != null) ...[
-            const SizedBox(height: 8),
-            Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+            const SizedBox(height: AppSpacing.md),
+            Text(_error!, style: const TextStyle(color: AppColors.danger)),
           ],
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.xl),
           _summaryStrip(context, session),
-          const SizedBox(height: 12),
-          if (session.lines.isEmpty)
-            const Text('Nothing counted yet.')
-          else
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                columns: const [
-                  DataColumn(label: Text('Item')),
-                  DataColumn(label: Text('Books'), numeric: true),
-                  DataColumn(label: Text('Counted'), numeric: true),
-                  DataColumn(label: Text('Difference'), numeric: true),
-                  DataColumn(label: Text('At cost'), numeric: true),
-                  DataColumn(label: Text('')),
-                ],
-                rows: [
-                  for (final line in session.lines)
-                    DataRow(
-                      cells: [
-                        DataCell(Text(line.description)),
-                        DataCell(
-                          Text(AppFormatters.quantity(line.systemQuantity)),
-                        ),
-                        DataCell(
-                          Text(AppFormatters.quantity(line.countedQuantity)),
-                        ),
-                        DataCell(
-                          Text(
-                            line.matches
-                                ? '—'
-                                : '${line.variance > 0 ? '+' : ''}'
-                                      '${AppFormatters.quantity(line.variance)}',
-                            style: TextStyle(
-                              color: line.matches
-                                  ? null
-                                  : (line.variance < 0
-                                        ? theme.colorScheme.error
-                                        : Colors.green.shade700),
-                            ),
-                          ),
-                        ),
-                        DataCell(
-                          Text(
-                            line.matches
-                                ? '—'
-                                : AppFormatters.currency(line.varianceValue),
-                          ),
-                        ),
-                        DataCell(
-                          IconButton(
-                            tooltip: 'Remove this line',
-                            icon: const Icon(Icons.delete_outline),
-                            onPressed: _busy
-                                ? null
-                                : () => _store.removeCount(
-                                    stocktakeId: session.id,
-                                    productId: line.productId,
-                                  ),
-                          ),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
+          const SizedBox(height: AppSpacing.base),
+          AppTable(
+            minWidth: 760,
+            empty: const EmptyState(
+              icon: Icons.checklist_rtl_rounded,
+              title: 'Nothing counted yet',
+              message:
+                  'Scan the first garment and type how many are on the '
+                  'rail. Lines appear here as you go, and the count can be '
+                  'picked back up tomorrow.',
             ),
+            columns: const [
+              DataColumn(label: Text('ITEM')),
+              DataColumn(label: Text('BOOKS'), numeric: true),
+              DataColumn(label: Text('COUNTED'), numeric: true),
+              DataColumn(label: Text('DIFFERENCE'), numeric: true),
+              DataColumn(label: Text('AT COST'), numeric: true),
+              DataColumn(label: Text('')),
+            ],
+            rows: [
+              for (final line in session.lines)
+                DataRow(
+                  cells: [
+                    DataCell(Text(line.description)),
+                    DataCell(Text(AppFormatters.quantity(line.systemQuantity))),
+                    DataCell(
+                      Text(AppFormatters.quantity(line.countedQuantity)),
+                    ),
+                    DataCell(
+                      line.matches
+                          ? const StatusPill('Matches', tone: PillTone.good)
+                          : Text(
+                              '${line.variance > 0 ? '+' : ''}'
+                              '${AppFormatters.quantity(line.variance)}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: line.variance < 0
+                                    ? AppColors.danger
+                                    : AppColors.success,
+                              ),
+                            ),
+                    ),
+                    DataCell(
+                      line.matches
+                          ? const Text('—')
+                          : MoneyText(line.varianceValue, size: 13),
+                    ),
+                    DataCell(
+                      IconButton(
+                        tooltip: 'Remove this line',
+                        icon: const Icon(Icons.delete_outline),
+                        onPressed: _busy
+                            ? null
+                            : () => _store.removeCount(
+                                stocktakeId: session.id,
+                                productId: line.productId,
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  Widget _summaryStrip(BuildContext context, StocktakeRecord session) {
-    final theme = Theme.of(context);
-    return Wrap(
-      spacing: 24,
-      runSpacing: 8,
-      children: [
-        Text('Lines counted: ${session.countedLines}'),
-        Text('Differences: ${session.discrepancies.length}'),
-        Text(
-          'Short: ${AppFormatters.currency(session.shortValue.abs())}',
-          style: TextStyle(color: theme.colorScheme.error),
+  Widget _summaryStrip(BuildContext context, StocktakeRecord session) =>
+      Container(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceAlt,
+          borderRadius: AppRadii.inputBorder,
+          border: Border.all(color: AppColors.border),
         ),
-        Text('Over: ${AppFormatters.currency(session.overValue)}'),
-        Text(
-          'Net effect: ${AppFormatters.currency(session.netValue)}',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+        child: Wrap(
+          spacing: 32,
+          runSpacing: AppSpacing.base,
+          children: [
+            _tally('Lines counted', '${session.countedLines}'),
+            _tally('Differences', '${session.discrepancies.length}'),
+            _tally(
+              'Short',
+              AppFormatters.currency(session.shortValue.abs()),
+              tone: session.shortValue.abs() > 0 ? AppColors.danger : null,
+            ),
+            _tally(
+              'Over',
+              AppFormatters.currency(session.overValue),
+              tone: session.overValue > 0 ? AppColors.success : null,
+            ),
+            _tally(
+              'Net effect',
+              AppFormatters.currency(session.netValue),
+              strong: true,
+            ),
+          ],
         ),
-      ],
-    );
-  }
+      );
+
+  Widget _tally(
+    String label,
+    String value, {
+    Color? tone,
+    bool strong = false,
+  }) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(
+        label.toUpperCase(),
+        style: AppTypography.microLabel.copyWith(
+          color: strong ? AppColors.goldDeep : AppColors.inkFaint,
+        ),
+      ),
+      const SizedBox(height: 2),
+      Text(
+        value,
+        style: TextStyle(
+          fontSize: strong ? 19 : 15,
+          fontWeight: strong ? FontWeight.w700 : FontWeight.w600,
+          fontFeatures: AppTypography.tabular,
+          color: tone,
+        ),
+      ),
+    ],
+  );
 
   Widget _matches() {
     final query = _search.text.trim().toLowerCase();
@@ -274,26 +329,37 @@ class _StocktakePageState extends State<StocktakePage> {
         .take(6)
         .toList();
     if (matches.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.only(top: 8),
-        child: Text('Nothing matches that.'),
+      return Padding(
+        padding: const EdgeInsets.only(top: AppSpacing.md),
+        child: Text(
+          'Nothing matches that. Check the barcode, or search by name.',
+          style: AppTypography.microLabel.copyWith(color: AppColors.inkFaint),
+        ),
       );
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final product in matches)
-          ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: Text(product.displayName),
-            subtitle: Text(
-              '${product.sku} — books say '
-              '${AppFormatters.quantity(product.stock)}',
+    return Container(
+      margin: const EdgeInsets.only(top: AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        borderRadius: AppRadii.inputBorder,
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final product in matches)
+            ListTile(
+              dense: true,
+              title: Text(product.displayName),
+              subtitle: Text(
+                '${product.sku} — books say '
+                '${AppFormatters.quantity(product.stock)}',
+              ),
+              trailing: const Icon(Icons.arrow_forward_rounded, size: 15),
+              onTap: () => _select(product),
             ),
-            onTap: () => _select(product),
-          ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -301,21 +367,17 @@ class _StocktakePageState extends State<StocktakePage> {
 
   Widget _adjustCard(BuildContext context) => SectionCard(
     title: 'Write something off',
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'For a single item damaged, given away or found — without opening a '
-          'whole count.',
-        ),
-        const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: () => _openAdjustDialog(context),
-          icon: const Icon(Icons.edit_note),
-          label: const Text('Adjust one item'),
-        ),
-      ],
-    ),
+    subtitle:
+        'For a single item damaged, given away or found — without opening a '
+        'whole count.',
+    actions: [
+      SecondaryButton(
+        label: 'Adjust one item',
+        icon: Icons.edit_note_rounded,
+        onPressed: () => _openAdjustDialog(context),
+      ),
+    ],
+    child: const SizedBox.shrink(),
   );
 
   // -------------------------------------------------------------- history
@@ -324,50 +386,58 @@ class _StocktakePageState extends State<StocktakePage> {
     final past = _store.stocktakes.where((s) => !s.isOpen).take(20).toList();
     return SectionCard(
       title: 'Past counts',
-      child: past.isEmpty
-          ? const Text('No counts have been finished yet.')
-          : SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                columns: const [
-                  DataColumn(label: Text('Reference')),
-                  DataColumn(label: Text('Started')),
-                  DataColumn(label: Text('Finished')),
-                  DataColumn(label: Text('By')),
-                  DataColumn(label: Text('Status')),
-                  DataColumn(label: Text('Lines'), numeric: true),
-                  DataColumn(label: Text('Differences'), numeric: true),
-                  DataColumn(label: Text('Net effect'), numeric: true),
-                ],
-                rows: [
-                  for (final session in past)
-                    DataRow(
-                      cells: [
-                        DataCell(Text(session.reference)),
-                        DataCell(Text(AppFormatters.date(session.startedAt))),
-                        DataCell(
-                          Text(
-                            session.committedAt == null
-                                ? '—'
-                                : AppFormatters.date(session.committedAt!),
-                          ),
-                        ),
-                        DataCell(Text(session.userName)),
-                        DataCell(Text(session.status.label)),
-                        DataCell(Text('${session.countedLines}')),
-                        DataCell(Text('${session.discrepancies.length}')),
-                        DataCell(
-                          Text(
-                            session.status == StocktakeStatus.committed
-                                ? AppFormatters.currency(session.netValue)
-                                : '—',
-                          ),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
+      child: AppTable(
+        minWidth: 900,
+        empty: const EmptyState(
+          icon: Icons.fact_check_outlined,
+          title: 'No counts finished yet',
+          message:
+              'A finished count is the record of what was written off '
+              'and by whom, so it cannot be edited afterwards.',
+        ),
+        columns: const [
+          DataColumn(label: Text('REFERENCE')),
+          DataColumn(label: Text('STARTED')),
+          DataColumn(label: Text('FINISHED')),
+          DataColumn(label: Text('BY')),
+          DataColumn(label: Text('STATUS')),
+          DataColumn(label: Text('LINES'), numeric: true),
+          DataColumn(label: Text('DIFFERENCES'), numeric: true),
+          DataColumn(label: Text('NET EFFECT'), numeric: true),
+        ],
+        rows: [
+          for (final session in past)
+            DataRow(
+              cells: [
+                DataCell(CodeText(session.reference, size: 12)),
+                DataCell(Text(AppFormatters.date(session.startedAt))),
+                DataCell(
+                  Text(
+                    session.committedAt == null
+                        ? '—'
+                        : AppFormatters.date(session.committedAt!),
+                  ),
+                ),
+                DataCell(Text(session.userName)),
+                DataCell(
+                  StatusPill(
+                    session.status.label,
+                    tone: session.status == StocktakeStatus.committed
+                        ? PillTone.good
+                        : PillTone.neutral,
+                  ),
+                ),
+                DataCell(Text('${session.countedLines}')),
+                DataCell(Text('${session.discrepancies.length}')),
+                DataCell(
+                  session.status == StocktakeStatus.committed
+                      ? MoneyText(session.netValue, size: 13)
+                      : const Text('—'),
+                ),
+              ],
             ),
+        ],
+      ),
     );
   }
 
