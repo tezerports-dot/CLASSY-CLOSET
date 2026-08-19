@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
 import '../../../app/di/injection.dart';
+import '../../../core/services/escpos.dart';
 import '../../../core/services/permissions.dart';
 import '../../../core/services/printer_service.dart';
 import '../../../core/services/receipt_logo.dart';
@@ -1032,7 +1033,20 @@ class _PosPageState extends State<PosPage> {
   /// bill: the print dialog is the fallback, and the cashier is told that is
   /// what happened rather than being left wondering why nothing came out.
   Future<String> _deliverReceipt(InvoiceData invoice) async {
-    final settings = _store.printerSettings;
+    // The paper chosen on this bill wins over the stored default, so picking
+    // A4 in the preview produces the full sheet rather than silently printing
+    // the configured roll, and picking a roll width prints at that width.
+    final settings = switch (_paper) {
+      InvoicePaper.a4 => _store.printerSettings.copyWith(
+        mode: ReceiptPrintMode.dialog,
+      ),
+      InvoicePaper.roll58 => _store.printerSettings.copyWith(
+        paper: ThermalPaper.mm58,
+      ),
+      InvoicePaper.roll80 => _store.printerSettings.copyWith(
+        paper: ThermalPaper.mm80,
+      ),
+    };
     if (settings.isThermal && _printerService.supportsDirectPrinting) {
       try {
         final sent = await _printerService.send(

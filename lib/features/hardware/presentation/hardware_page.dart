@@ -298,7 +298,7 @@ class _HardwarePageState extends State<HardwarePage> {
                     for (final m in ReceiptPrintMode.values)
                       DropdownMenuItem(value: m, child: Text(m.label)),
                   ],
-                  onChanged: (m) => _save(settings.copyWith(mode: m)),
+                  onChanged: (m) => _save((s) => s.copyWith(mode: m)),
                 ),
               ),
               const SizedBox(width: AppSpacing.base),
@@ -324,9 +324,9 @@ class _HardwarePageState extends State<HardwarePage> {
                       DropdownMenuItem<String?>(value: n, child: Text(n)),
                   ],
                   onChanged: (n) => _save(
-                    n == null
-                        ? settings.copyWith(clearPrinterName: true)
-                        : settings.copyWith(printerName: n),
+                    (s) => n == null
+                        ? s.copyWith(clearPrinterName: true)
+                        : s.copyWith(printerName: n),
                   ),
                 ),
               ),
@@ -339,7 +339,7 @@ class _HardwarePageState extends State<HardwarePage> {
                     for (final p in ThermalPaper.values)
                       DropdownMenuItem(value: p, child: Text(p.label)),
                   ],
-                  onChanged: (p) => _save(settings.copyWith(paper: p)),
+                  onChanged: (p) => _save((s) => s.copyWith(paper: p)),
                 ),
               ),
             ],
@@ -352,17 +352,17 @@ class _HardwarePageState extends State<HardwarePage> {
               _toggle(
                 'Cut after each bill',
                 settings.cutAfterPrint,
-                (v) => _save(settings.copyWith(cutAfterPrint: v)),
+                (v) => _save((s) => s.copyWith(cutAfterPrint: v)),
               ),
               _toggle(
                 'Print the shop logo',
                 settings.printLogoOnReceipt,
-                (v) => _save(settings.copyWith(printLogoOnReceipt: v)),
+                (v) => _save((s) => s.copyWith(printLogoOnReceipt: v)),
               ),
               _toggle(
                 'Print the bill barcode',
                 settings.printBarcodeOnReceipt,
-                (v) => _save(settings.copyWith(printBarcodeOnReceipt: v)),
+                (v) => _save((s) => s.copyWith(printBarcodeOnReceipt: v)),
               ),
             ],
           ),
@@ -420,7 +420,7 @@ class _HardwarePageState extends State<HardwarePage> {
                 child: _toggle(
                   'Open on every cash sale',
                   settings.openDrawerOnCashSale,
-                  (v) => _save(settings.copyWith(openDrawerOnCashSale: v)),
+                  (v) => _save((s) => s.copyWith(openDrawerOnCashSale: v)),
                 ),
               ),
               SizedBox(
@@ -435,7 +435,7 @@ class _HardwarePageState extends State<HardwarePage> {
                     DropdownMenuItem(value: 0, child: Text('Pin 2 (usual)')),
                     DropdownMenuItem(value: 1, child: Text('Pin 5')),
                   ],
-                  onChanged: (p) => _save(settings.copyWith(drawerPin: p)),
+                  onChanged: (p) => _save((s) => s.copyWith(drawerPin: p)),
                 ),
               ),
             ],
@@ -536,7 +536,26 @@ class _HardwarePageState extends State<HardwarePage> {
         ),
       );
 
-  Future<void> _save(PrinterSettings next) => _store.savePrinterSettings(next);
+  /// The write in flight, if any. Settings changes are chained onto it so two
+  /// quick taps cannot race.
+  Future<void> _pendingSave = Future.value();
+
+  /// Applies one change to the *current* settings and persists it.
+  ///
+  /// The store only refreshes its in-memory copy once the database write has
+  /// finished, so building the update from the snapshot this build captured
+  /// would lose the previous change if the counter flicked two switches in
+  /// quick succession. Reading inside the closure, after the previous write has
+  /// settled, means each change is applied to what is actually stored.
+  Future<void> _save(PrinterSettings Function(PrinterSettings current) change) {
+    final next = _pendingSave.then(
+      (_) => _store.savePrinterSettings(change(_store.printerSettings)),
+    );
+    // Keep the chain alive even if one write fails, or every later change
+    // would be dropped along with it.
+    _pendingSave = next.catchError((_) {});
+    return next;
+  }
 
   Future<void> _testPrint() async {
     final ok = await _printer.printTestPage(_settings);

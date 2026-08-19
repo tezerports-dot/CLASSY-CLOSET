@@ -757,7 +757,10 @@ class _AdjustDialogState extends State<_AdjustDialog> {
       _error = null;
     });
     try {
-      final magnitude = double.tryParse(_quantity.text.trim()) ?? 0;
+      // The direction comes from the Add on / Take off choice, never from the
+      // sign of what was typed. Without the abs(), "-5" with "Take off"
+      // selected negates twice and puts five pieces *on* the rail.
+      final magnitude = (double.tryParse(_quantity.text.trim()) ?? 0).abs();
       await widget.store.adjustStock(
         productId: _product!.id,
         delta: _adding ? magnitude : -magnitude,
