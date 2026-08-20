@@ -105,7 +105,7 @@ class BackupService {
 
   Future<BackupResult> _writeAutomaticZipBackup() async {
     final folder = await automaticZipDirectory();
-    final result = await backupTo(p.join(folder.path, defaultBackupFileName()));
+    final result = await backupTo(p.join(folder.path, suggestedFileName()));
     if (result.success) await _pruneAutomaticZipBackups(folder);
     return result;
   }
