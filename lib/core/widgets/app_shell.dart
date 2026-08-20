@@ -521,12 +521,6 @@ const navItems = <NavEntry>[
     Permission.recordPurchases,
   ),
   NavEntry(
-    Icons.fact_check_rounded,
-    'Stock count',
-    '/stocktake',
-    Permission.adjustStock,
-  ),
-  NavEntry(
     Icons.receipt_long_rounded,
     'Expenses',
     '/expenses',

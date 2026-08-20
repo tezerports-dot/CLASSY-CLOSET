@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:excel/excel.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -33,8 +35,251 @@ class BackupService {
   BackupService(this._db);
 
   final AppDatabase _db;
+  Timer? _excelTimer;
+  Timer? _zipTimer;
+  Future<BackupResult>? _excelBackupInFlight;
+  Future<BackupResult>? _zipBackupInFlight;
 
   static const _dbFileName = 'retailpro.sqlite';
+
+  Future<Directory> automaticExcelDirectory() async {
+    final documents = await getApplicationDocumentsDirectory();
+    final folder = Directory(
+      p.join(documents.path, 'Classy Closet Automatic Excel Backup'),
+    );
+    if (!folder.existsSync()) folder.createSync(recursive: true);
+    return folder;
+  }
+
+  Future<Directory> automaticZipDirectory() async {
+    final documents = await getApplicationDocumentsDirectory();
+    final folder = Directory(
+      p.join(documents.path, 'Classy Closet Automatic Zip Backup'),
+    );
+    if (!folder.existsSync()) folder.createSync(recursive: true);
+    return folder;
+  }
+
+  void startAutomaticExcelBackup() {
+    unawaited(writeAutomaticExcelBackup());
+    unawaited(writeAutomaticZipBackup());
+    _excelTimer?.cancel();
+    _zipTimer?.cancel();
+    _excelTimer = Timer.periodic(
+      const Duration(minutes: 10),
+      (_) => unawaited(writeAutomaticExcelBackup()),
+    );
+    _zipTimer = Timer.periodic(
+      const Duration(hours: 6),
+      (_) => unawaited(writeAutomaticZipBackup()),
+    );
+  }
+
+  Future<BackupResult> writeAutomaticExcelBackup() {
+    final active = _excelBackupInFlight;
+    if (active != null) return active;
+
+    final backup = _writeAutomaticExcelBackup();
+    _excelBackupInFlight = backup;
+    backup.whenComplete(() {
+      if (identical(_excelBackupInFlight, backup)) {
+        _excelBackupInFlight = null;
+      }
+    });
+    return backup;
+  }
+
+  Future<BackupResult> writeAutomaticZipBackup() {
+    final active = _zipBackupInFlight;
+    if (active != null) return active;
+
+    final backup = _writeAutomaticZipBackup();
+    _zipBackupInFlight = backup;
+    backup.whenComplete(() {
+      if (identical(_zipBackupInFlight, backup)) {
+        _zipBackupInFlight = null;
+      }
+    });
+    return backup;
+  }
+
+  Future<BackupResult> _writeAutomaticZipBackup() async {
+    final folder = await automaticZipDirectory();
+    final result = await backupTo(p.join(folder.path, defaultBackupFileName()));
+    if (result.success) await _pruneAutomaticZipBackups(folder);
+    return result;
+  }
+
+  Future<void> _pruneAutomaticZipBackups(Directory folder) async {
+    final backups = folder
+        .listSync()
+        .whereType<File>()
+        .where((file) => p.basename(file.path).startsWith('retailpro-backup-'))
+        .toList()
+      ..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+
+    for (final file in backups.skip(30)) {
+      try {
+        file.deleteSync();
+      } on FileSystemException {
+        // A locked old backup is harmless; try pruning again next time.
+      }
+    }
+  }
+
+  Future<BackupResult> _writeAutomaticExcelBackup() async {
+    try {
+      await _db.customStatement('PRAGMA wal_checkpoint(PASSIVE)');
+      final folder = await automaticExcelDirectory();
+      final excel = Excel.createExcel();
+      excel.rename('Sheet1', 'Products');
+      _writeProducts(excel['Products'], await _db.select(_db.products).get());
+      _writeCustomers(
+        excel['Customers'],
+        await _db.select(_db.customers).get(),
+      );
+      _writeSuppliers(
+        excel['Suppliers'],
+        await _db.select(_db.suppliers).get(),
+      );
+      _writePurchases(
+        excel['Purchases'],
+        await _db.select(_db.purchases).get(),
+      );
+      _writeSales(excel['Sales'], await _db.select(_db.sales).get());
+
+      final bytes = excel.save(fileName: 'classy-closet-live-backup.xlsx');
+      if (bytes == null) {
+        return const BackupResult(
+          success: false,
+          message: 'Could not create the Excel backup.',
+        );
+      }
+      final target = File(
+        p.join(folder.path, 'classy-closet-live-backup.xlsx'),
+      );
+      await target.writeAsBytes(bytes, flush: true);
+      return BackupResult(
+        success: true,
+        message: 'Automatic Excel backup updated.',
+        path: target.path,
+        fileCount: 1,
+        bytes: bytes.length,
+      );
+    } on Object catch (e) {
+      return BackupResult(
+        success: false,
+        message: 'Automatic Excel backup failed: $e',
+      );
+    }
+  }
+
+  void _row(Sheet sheet, List<Object?> values) {
+    sheet.appendRow([
+      for (final value in values)
+        if (value is num)
+          DoubleCellValue(value.toDouble())
+        else
+          TextCellValue(value?.toString() ?? ''),
+    ]);
+  }
+
+  void _writeProducts(Sheet sheet, List<ProductRow> rows) {
+    _row(sheet, const [
+      'ID',
+      'SKU',
+      'Barcode',
+      'Name',
+      'Size',
+      'Colour',
+      'Stock',
+      'Purchase price',
+      'Selling price',
+      'Active',
+    ]);
+    for (final r in rows) {
+      _row(sheet, [
+        r.id,
+        r.sku,
+        r.barcode,
+        r.name,
+        r.size,
+        r.color,
+        r.currentStock < 0 ? 0 : r.currentStock,
+        r.purchasePrice,
+        r.sellingPrice,
+        r.isActive ? 'Yes' : 'No',
+      ]);
+    }
+  }
+
+  void _writeCustomers(Sheet sheet, List<CustomerRow> rows) {
+    _row(sheet, const ['ID', 'Name', 'Phone', 'Email', 'Balance']);
+    for (final r in rows) {
+      _row(sheet, [r.id, r.name, r.phone, r.email, r.currentBalance]);
+    }
+  }
+
+  void _writeSuppliers(Sheet sheet, List<SupplierRow> rows) {
+    _row(sheet, const ['ID', 'Name', 'Phone', 'Email', 'Balance']);
+    for (final r in rows) {
+      _row(sheet, [r.id, r.name, r.phone, r.email, r.currentBalance]);
+    }
+  }
+
+  void _writePurchases(Sheet sheet, List<PurchaseRow> rows) {
+    _row(sheet, const [
+      'ID',
+      'Supplier ID',
+      'Invoice number',
+      'Total',
+      'Paid',
+      'Outstanding',
+      'Purchased at',
+    ]);
+    for (final r in rows) {
+      _row(sheet, [
+        r.id,
+        r.supplierId,
+        r.invoiceNumber,
+        r.grandTotal,
+        r.paidAmount,
+        r.grandTotal - r.paidAmount,
+        r.purchasedAt.toIso8601String(),
+      ]);
+    }
+  }
+
+  void _writeSales(Sheet sheet, List<SaleRow> rows) {
+    _row(sheet, const [
+      'ID',
+      'Bill number',
+      'Customer ID',
+      'Total',
+      'Paid',
+      'Method',
+      'Cash',
+      'Card',
+      'UPI',
+      'Txn reference',
+      'Sold at',
+    ]);
+    for (final r in rows) {
+      _row(sheet, [
+        r.id,
+        r.receiptNumber,
+        r.customerId,
+        r.grandTotal,
+        r.paidAmount,
+        r.paymentMethod,
+        r.cashAmount,
+        r.cardAmount,
+        r.upiAmount,
+        r.paymentReference,
+        r.soldAt.toIso8601String(),
+      ]);
+    }
+  }
 
   Future<Directory> _dataDirectory() async {
     final support = await getApplicationSupportDirectory();
@@ -119,8 +364,8 @@ class BackupService {
         return const BackupResult(
           success: false,
           message:
-              'That zip does not contain a Classy Closet database, so it is not a '
-              'backup of this app.',
+              'That zip does not contain a Classy Closet database, so it is '
+              'not a backup of this app.',
         );
       }
       return BackupResult(
@@ -181,8 +426,9 @@ class BackupService {
       return BackupResult(
         success: true,
         message:
-            'Restored \$written file(s). Close and reopen Classy Closet to finish. '
-            'Your previous data was kept at ${p.basename(safetyCopy.path)}.',
+            'Restored \$written file(s). Close and reopen Classy Closet to '
+            'finish. Your previous data was kept at '
+            '${p.basename(safetyCopy.path)}.',
         path: target.path,
         fileCount: written,
       );

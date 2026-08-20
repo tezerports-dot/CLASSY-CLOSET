@@ -6,6 +6,7 @@ import '../../../core/services/retail_store.dart';
 import '../../../core/services/statements.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/utils/search.dart';
 import '../../../core/widgets/ui_kit.dart';
 import '../../parties/presentation/widgets/party_actions.dart';
 import 'widgets/supplier_form_dialog.dart';
@@ -38,7 +39,8 @@ class _SuppliersPageState extends State<SuppliersPage> {
         final all = _store.suppliers;
         final rows = all
             .where(
-              (s) => '${s.name} ${s.phone} ${s.email}'.toLowerCase().contains(
+              (s) => AppSearch.matches(
+                '${s.name} ${s.phone} ${s.email}',
                 query,
               ),
             )

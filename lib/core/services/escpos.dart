@@ -35,7 +35,7 @@ import 'dart:typed_data';
 /// the printer's default font. Those two counts are what the layout code needs;
 /// millimetres never enter into it.
 enum ThermalPaper {
-  mm58(32, 384, '58 mm roll'),
+  mm58(32, 384, '57 mm roll'),
   mm80(48, 576, '80 mm roll');
 
   const ThermalPaper(this.columns, this.dots, this.label);

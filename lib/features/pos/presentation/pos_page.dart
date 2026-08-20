@@ -12,6 +12,7 @@ import '../../../core/services/retail_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/utils/search.dart';
 import '../../../core/widgets/ui_kit.dart';
 import '../data/invoice_document.dart';
 import '../data/repositories/pos_repository.dart';
@@ -53,9 +54,11 @@ class _PosPageState extends State<PosPage> {
 
   /// Held so focus can be pushed straight back after a scan.
   final _productSearchFocus = FocusNode();
-  final _cashTendered = TextEditingController();
+  final _customerName = TextEditingController();
+  final _customerPhone = TextEditingController();
   final _splitCash = TextEditingController();
   final _splitCard = TextEditingController();
+  final _splitUpi = TextEditingController();
   final _billDiscount = TextEditingController();
   final _paymentReference = TextEditingController();
 
@@ -78,18 +81,20 @@ class _PosPageState extends State<PosPage> {
     _store = getIt<RetailStore>();
     _posRepository = getIt<PosRepository>();
     _printerService = getIt<PrinterService>();
-    _cashTendered.addListener(_onPaymentChanged);
     _splitCash.addListener(_onPaymentChanged);
     _splitCard.addListener(_onPaymentChanged);
+    _splitUpi.addListener(_onPaymentChanged);
   }
 
   @override
   void dispose() {
     _productSearch.dispose();
     _productSearchFocus.dispose();
-    _cashTendered.dispose();
+    _customerName.dispose();
+    _customerPhone.dispose();
     _splitCash.dispose();
     _splitCard.dispose();
+    _splitUpi.dispose();
     _billDiscount.dispose();
     _paymentReference.dispose();
     super.dispose();
@@ -349,7 +354,7 @@ class _PosPageState extends State<PosPage> {
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-            child: _customerPicker(),
+            child: _customerFields(),
           ),
           const SizedBox(height: AppSpacing.base),
           const Divider(height: 1),
@@ -590,45 +595,12 @@ class _PosPageState extends State<PosPage> {
         ),
         const SizedBox(height: AppSpacing.base),
         if (_paymentMode == _PaymentMode.cash) ...[
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 38,
-                  child: TextField(
-                    controller: _cashTendered,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    style: AppTypography.money.copyWith(fontSize: 13.5),
-                    decoration: InputDecoration(
-                      labelText: 'Cash tendered',
-                      prefixText: '${AppFormatters.symbol} ',
-                      isDense: true,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.base),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Change due',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: AppColors.inkFaint,
-                    ),
-                  ),
-                  MoneyText(
-                    change,
-                    size: 16,
-                    weight: FontWeight.w700,
-                    tone: change > 0 ? AppColors.success : AppColors.inkFaint,
-                  ),
-                ],
-              ),
-            ],
+          Text(
+            'Cash sale: checkout records the exact bill total. No change due '
+            'or transaction reference is needed.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: AppColors.inkSoft,
+            ),
           ),
         ] else if (_paymentMode == _PaymentMode.split) ...[
           Row(
@@ -666,6 +638,23 @@ class _PosPageState extends State<PosPage> {
                   ),
                 ),
               ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: SizedBox(
+                  height: 38,
+                  child: TextField(
+                    controller: _splitUpi,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    style: AppTypography.money.copyWith(fontSize: 13.5),
+                    decoration: const InputDecoration(
+                      labelText: 'UPI',
+                      isDense: true,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
           if ((_paidAmount - total).abs() >= 0.01)
@@ -685,12 +674,10 @@ class _PosPageState extends State<PosPage> {
             height: 38,
             child: TextField(
               controller: _paymentReference,
-              style: const TextStyle(fontSize: 13),
               decoration: const InputDecoration(
-                labelText: 'Transaction reference',
-                hintText: 'From the card machine slip or the UPI app',
+                labelText: 'Payment reference',
+                hintText: 'Enter verified terminal / UPI ref',
                 isDense: true,
-                prefixIcon: Icon(Icons.tag, size: 16),
               ),
             ),
           ),
@@ -717,30 +704,32 @@ class _PosPageState extends State<PosPage> {
         ),
       );
 
-  Widget _customerPicker() {
-    final walkIn = _walkInCustomer;
-    return DropdownButtonFormField<CustomerRecord>(
-      initialValue: _selectedCustomer ?? walkIn,
-      isExpanded: true,
-      decoration: const InputDecoration(
-        isDense: true,
-        prefixIcon: Icon(Icons.person_outline, size: 17),
-        contentPadding: EdgeInsets.symmetric(
-          horizontal: AppSpacing.base,
-          vertical: AppSpacing.md,
+  Widget _customerFields() => Row(
+    children: [
+      Expanded(
+        child: TextField(
+          controller: _customerName,
+          decoration: const InputDecoration(
+            isDense: true,
+            prefixIcon: Icon(Icons.person_outline, size: 17),
+            labelText: 'Customer name (optional)',
+          ),
         ),
       ),
-      style: Theme.of(context).textTheme.bodyMedium,
-      items: [
-        for (final c in _store.customers)
-          DropdownMenuItem(
-            value: c,
-            child: Text(c.name, overflow: TextOverflow.ellipsis),
+      const SizedBox(width: AppSpacing.sm),
+      Expanded(
+        child: TextField(
+          controller: _customerPhone,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(
+            isDense: true,
+            prefixIcon: Icon(Icons.phone_outlined, size: 17),
+            labelText: 'Mobile number (optional)',
           ),
-      ],
-      onChanged: (c) => setState(() => _selectedCustomer = c),
-    );
-  }
+        ),
+      ),
+    ],
+  );
 
   // ----------------------------------------------------------------- helpers
 
@@ -750,9 +739,10 @@ class _PosPageState extends State<PosPage> {
     if (query.isEmpty) return active.take(60).toList();
     return active
         .where(
-          (p) => '${p.name} ${p.sku} ${p.barcode} ${p.size} ${p.color}'
-              .toLowerCase()
-              .contains(query),
+          (p) => AppSearch.matches(
+            '${p.name} ${p.sku} ${p.barcode} ${p.size} ${p.color}',
+            query,
+          ),
         )
         .toList();
   }
@@ -796,9 +786,12 @@ class _PosPageState extends State<PosPage> {
   double get _cartTotal => _store.cartGrandTotal(customer: _selectedCustomer);
 
   double get _paidAmount => switch (_paymentMode) {
-    _PaymentMode.cash => _parse(_cashTendered.text),
+    _PaymentMode.cash => _cartTotal,
     _PaymentMode.card || _PaymentMode.upi => _cartTotal,
-    _PaymentMode.split => _parse(_splitCash.text) + _parse(_splitCard.text),
+    _PaymentMode.split =>
+      _parse(_splitCash.text) +
+          _parse(_splitCard.text) +
+          _parse(_splitUpi.text),
   };
 
   String get _paymentLabel => switch (_paymentMode) {
@@ -807,7 +800,8 @@ class _PosPageState extends State<PosPage> {
     _PaymentMode.upi => 'Paid by UPI',
     _PaymentMode.split =>
       'Split: cash ${AppFormatters.currency(_parse(_splitCash.text))}, '
-          'card ${AppFormatters.currency(_parse(_splitCard.text))}',
+          'card ${AppFormatters.currency(_parse(_splitCard.text))}, '
+          'UPI ${AppFormatters.currency(_parse(_splitUpi.text))}',
   };
 
   String get _paymentMethodValue => switch (_paymentMode) {
@@ -829,8 +823,11 @@ class _PosPageState extends State<PosPage> {
     _PaymentMode.split => _parse(_splitCard.text),
   };
 
-  double get _upiAmountForSale =>
-      _paymentMode == _PaymentMode.upi ? _cartTotal : 0;
+  double get _upiAmountForSale => switch (_paymentMode) {
+    _PaymentMode.upi => _cartTotal,
+    _PaymentMode.split => _parse(_splitUpi.text),
+    _PaymentMode.cash || _PaymentMode.card => 0,
+  };
 
   CustomerRecord? get _walkInCustomer {
     for (final customer in _store.customers) {
@@ -861,20 +858,19 @@ class _PosPageState extends State<PosPage> {
   /// cannot run while the tree is building.
   void _syncPaymentDefaults(double total) {
     if (total <= 0) return;
-    final needsCash =
-        _paymentMode == _PaymentMode.cash && _cashTendered.text.isEmpty;
     final needsSplit =
         _paymentMode == _PaymentMode.split &&
         _splitCard.text.isEmpty &&
-        _splitCash.text.isEmpty;
-    if (!needsCash && !needsSplit) return;
+        _splitCash.text.isEmpty &&
+        _splitUpi.text.isEmpty;
+    if (!needsSplit) return;
     final formattedTotal = total.toStringAsFixed(2);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (needsCash && _cashTendered.text.isEmpty) {
-        _cashTendered.text = formattedTotal;
-      }
-      if (needsSplit && _splitCard.text.isEmpty && _splitCash.text.isEmpty) {
+      if (needsSplit &&
+          _splitCard.text.isEmpty &&
+          _splitCash.text.isEmpty &&
+          _splitUpi.text.isEmpty) {
         _splitCard.text = formattedTotal;
       }
     });
@@ -901,11 +897,45 @@ class _PosPageState extends State<PosPage> {
   /// The cart is emptied by the checkout, so the amounts tendered for the sale
   /// that just completed must not carry over into the next one.
   void _resetPaymentInputs() {
-    _cashTendered.clear();
+    _customerName.clear();
+    _customerPhone.clear();
     _splitCash.clear();
     _splitCard.clear();
-    _billDiscount.clear();
+    _splitUpi.clear();
     _paymentReference.clear();
+    _billDiscount.clear();
+  }
+
+  Future<CustomerRecord?> _customerForManualEntry() async {
+    final name = _customerName.text.trim();
+    final phone = _customerPhone.text.trim();
+    if (name.isEmpty && phone.isEmpty) return null;
+
+    for (final customer in _store.customers) {
+      if (phone.isNotEmpty && customer.phone.trim() == phone) return customer;
+    }
+
+    final customer = CustomerRecord(
+      id: 0,
+      name: name.isEmpty ? 'Customer $phone' : name,
+      phone: phone,
+      email: '',
+      address: '',
+      creditLimit: 0,
+      openingBalance: 0,
+      balance: 0,
+    );
+    final id = await _store.saveCustomer(customer);
+    return CustomerRecord(
+      id: id,
+      name: customer.name,
+      phone: customer.phone,
+      email: '',
+      address: '',
+      creditLimit: 0,
+      openingBalance: 0,
+      balance: 0,
+    );
   }
 
   // ----------------------------------------------------------------- actions
@@ -927,21 +957,29 @@ class _PosPageState extends State<PosPage> {
         paid: paid,
         change: (paid - sale.total).clamp(0, double.infinity).toDouble(),
         paymentLabel: _paymentLabel,
-        customerName: _selectedCustomer?.name,
-        customerPhone: _selectedCustomer?.phone,
+        customerName: _customerName.text.trim().isEmpty
+            ? _selectedCustomer?.name
+            : _customerName.text.trim(),
+        customerPhone: _customerPhone.text.trim().isEmpty
+            ? _selectedCustomer?.phone
+            : _customerPhone.text.trim(),
         customerAddress: _selectedCustomer?.address,
       );
 
   Future<void> _checkout(BuildContext context) async {
-    final receiptLines = List<CartLine>.from(_store.cart);
-    final customer = _selectedCustomer;
-    final paid = _paidAmount;
-    final paymentMethod = _paymentMethodValue;
-    final cashAmount = _cashAmountForSale;
-    final cardAmount = _cardAmountForSale;
-    final upiAmount = _upiAmountForSale;
+    if (_checkingOut) return;
     setState(() => _checkingOut = true);
     try {
+      final receiptLines = List<CartLine>.from(_store.cart);
+      final customer = await _customerForManualEntry();
+      final paid = _paidAmount;
+      final paymentMethod = _paymentMethodValue;
+      final cashAmount = _cashAmountForSale;
+      final cardAmount = _cardAmountForSale;
+      final upiAmount = _upiAmountForSale;
+      final paymentReference = paymentMethod == 'cash'
+          ? ''
+          : _paymentReference.text.trim();
       final sale = await _posRepository.checkout(
         customer: customer,
         paid: paid,
@@ -949,7 +987,7 @@ class _PosPageState extends State<PosPage> {
         cashAmount: cashAmount,
         cardAmount: cardAmount,
         upiAmount: upiAmount,
-        paymentReference: _paymentReference.text,
+        paymentReference: paymentReference,
       );
       final invoice = _invoiceFor(sale, receiptLines, paid);
       _resetPaymentInputs();
@@ -983,7 +1021,9 @@ class _PosPageState extends State<PosPage> {
 
     final draft = SaleRecord(
       receipt: 'PREVIEW',
-      customerName: _selectedCustomer?.name ?? 'Walk-in',
+      customerName: _customerName.text.trim().isEmpty
+          ? (_selectedCustomer?.name ?? 'Walk-in')
+          : _customerName.text.trim(),
       total: total,
       profit: 0,
       createdAt: DateTime.now(),

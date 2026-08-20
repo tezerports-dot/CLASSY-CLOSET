@@ -55,4 +55,5 @@ Future<void> configureDependencies() async {
     );
   }
   await getIt<RetailStore>().initialize();
+  getIt<BackupService>().startAutomaticExcelBackup();
 }

@@ -14,7 +14,7 @@ import '../../../core/utils/formatters.dart';
 /// desk printer. Picking one changes the layout, not just the page size — a
 /// 58 mm roll cannot carry the same columns as an A4 sheet.
 enum InvoicePaper {
-  roll58(PdfPageFormat.roll57, 'Thermal 58 mm'),
+  roll58(PdfPageFormat.roll57, 'Thermal 57 mm'),
   roll80(PdfPageFormat.roll80, 'Thermal 80 mm'),
   a4(PdfPageFormat.a4, 'A4 sheet');
 

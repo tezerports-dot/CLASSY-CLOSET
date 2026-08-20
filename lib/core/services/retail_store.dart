@@ -244,6 +244,7 @@ class ProductRecord {
     required this.location,
     this.description = '',
     this.supplier = '',
+    this.supplierId,
     this.wholesalePrice = 0,
     this.taxRate = 0,
     this.maximumStock,
@@ -270,6 +271,7 @@ class ProductRecord {
   final String location;
   final String description;
   final String supplier;
+  final int? supplierId;
   final double wholesalePrice;
   final double taxRate;
   final double? maximumStock;
@@ -809,7 +811,7 @@ class RetailStore extends ChangeNotifier {
         sellingPrice: Value(product.sellingPrice),
         wholesalePrice: Value(product.wholesalePrice),
         taxRate: Value(product.taxRate),
-        currentStock: Value(product.stock),
+        currentStock: Value(product.stock.clamp(0, double.infinity).toDouble()),
         minimumStock: Value(product.minimumStock),
         maximumStock: Value(product.maximumStock),
         location: Value(
@@ -828,14 +830,17 @@ class RetailStore extends ChangeNotifier {
       );
       if (product.id == 0) {
         productId = await _db.into(_db.products).insert(companion);
-        if (product.stock != 0) {
+        final openingStock = product.stock
+            .clamp(0, double.infinity)
+            .toDouble();
+        if (openingStock != 0) {
           await _db
               .into(_db.inventoryMovements)
               .insert(
                 InventoryMovementsCompanion.insert(
                   productId: productId,
                   movementType: 'opening',
-                  quantity: product.stock,
+                  quantity: openingStock,
                   referenceType: const Value('products'),
                   referenceId: Value(productId),
                 ),
@@ -866,6 +871,33 @@ class RetailStore extends ChangeNotifier {
 
   Future<void> addProduct(ProductRecord product) async {
     await saveProduct(product);
+  }
+
+  Future<void> deleteProduct(int id) async {
+    await (_db.update(_db.products)..where((p) => p.id.equals(id))).write(
+      const ProductsCompanion(isActive: Value(false), currentStock: Value(0)),
+    );
+    await _audit('DELETE', 'products', id, 'Deactivated product $id');
+    await refresh();
+  }
+
+  Future<void> deleteStyle(int id) async {
+    await _db.transaction(() async {
+      await (_db.update(
+        _db.productStyles,
+      )..where((s) => s.id.equals(id))).write(
+        const ProductStylesCompanion(isActive: Value(false)),
+      );
+      await (_db.update(_db.products)..where((p) => p.styleId.equals(id)))
+          .write(
+            const ProductsCompanion(
+              isActive: Value(false),
+              currentStock: Value(0),
+            ),
+          );
+      await _audit('DELETE', 'product_styles', id, 'Deactivated style $id');
+    });
+    await refresh();
   }
 
   /// Saves a design together with its whole size/colour run in one transaction.
@@ -964,7 +996,9 @@ class RetailStore extends ChangeNotifier {
           purchasePrice: Value(variant.purchasePrice),
           sellingPrice: Value(variant.sellingPrice),
           taxRate: Value(variant.taxRate),
-          currentStock: Value(variant.stock),
+          currentStock: Value(
+            variant.stock.clamp(0, double.infinity).toDouble(),
+          ),
           minimumStock: Value(variant.minimumStock),
           location: Value(
             variant.location.trim().isEmpty ? null : variant.location.trim(),
@@ -975,14 +1009,17 @@ class RetailStore extends ChangeNotifier {
         if (match == null) {
           final id = await _db.into(_db.products).insert(row);
           keptIds.add(id);
-          if (variant.stock != 0) {
+          final openingStock = variant.stock
+              .clamp(0, double.infinity)
+              .toDouble();
+          if (openingStock != 0) {
             await _db
                 .into(_db.inventoryMovements)
                 .insert(
                   InventoryMovementsCompanion.insert(
                     productId: id,
                     movementType: 'opening',
-                    quantity: variant.stock,
+                    quantity: openingStock,
                     referenceType: const Value('product_styles'),
                     referenceId: Value(styleId),
                   ),
@@ -1022,7 +1059,8 @@ class RetailStore extends ChangeNotifier {
     final target = File(
       p.join(
         images.path,
-        'product_${productId}_${DateTime.now().millisecondsSinceEpoch}$extension',
+        'product_${productId}_${DateTime.now().millisecondsSinceEpoch}'
+        '$extension',
       ),
     );
     await source.copy(target.path);
@@ -2222,6 +2260,26 @@ class RetailStore extends ChangeNotifier {
             currentBalance: Value(_money(supplier.balance - rounded)),
           ),
         );
+        var remaining = rounded;
+        final duePurchases =
+            await (_db.select(_db.purchases)
+                  ..where((p) => p.supplierId.equals(partyId))
+                  ..orderBy([(p) => OrderingTerm.asc(p.purchasedAt)]))
+                .get();
+        for (final purchase in duePurchases) {
+          if (remaining <= 0) break;
+          final outstanding = _money(purchase.grandTotal - purchase.paidAmount);
+          if (outstanding <= 0) continue;
+          final applied = remaining > outstanding ? outstanding : remaining;
+          await (_db.update(
+            _db.purchases,
+          )..where((p) => p.id.equals(purchase.id))).write(
+            PurchasesCompanion(
+              paidAmount: Value(_money(purchase.paidAmount + applied)),
+            ),
+          );
+          remaining = _money(remaining - applied);
+        }
       }
 
       await _audit(
@@ -2708,7 +2766,10 @@ class RetailStore extends ChangeNotifier {
                     product.name,
                     if ((product.color ?? '').isNotEmpty ||
                         (product.size ?? '').isNotEmpty)
-                      '(${[product.color ?? '', product.size ?? ''].where((v) => v.isNotEmpty).join(' / ')})',
+                      '(${[
+                        product.color ?? '',
+                        product.size ?? '',
+                      ].where((v) => v.isNotEmpty).join(' / ')})',
                   ].join(' ');
             return ReturnableLine(
               saleItemId: item.id,
@@ -3342,7 +3403,7 @@ class RetailStore extends ChangeNotifier {
                 category: categories[p.categoryId] ?? 'General',
                 brand: brands[p.brandId] ?? 'Unbranded',
                 unit: units[p.unitId] ?? 'pcs',
-                stock: p.currentStock,
+                stock: p.currentStock < 0 ? 0 : p.currentStock,
                 minimumStock: p.minimumStock,
                 purchasePrice: p.purchasePrice,
                 sellingPrice: p.sellingPrice,
@@ -3350,6 +3411,7 @@ class RetailStore extends ChangeNotifier {
                 location: p.location ?? '',
                 description: p.description ?? '',
                 supplier: suppliersById[p.supplierId] ?? '',
+                supplierId: p.supplierId,
                 wholesalePrice: p.wholesalePrice,
                 taxRate: p.taxRate,
                 maximumStock: p.maximumStock,
@@ -3514,7 +3576,8 @@ class RetailStore extends ChangeNotifier {
       ..addAll(
         rows.map(
           (a) =>
-              '${a.createdAt.toIso8601String()} [${a.action}] ${a.payloadJson ?? a.entityType}',
+              '${a.createdAt.toIso8601String()} [${a.action}] '
+              '${a.payloadJson ?? a.entityType}',
         ),
       );
   }
