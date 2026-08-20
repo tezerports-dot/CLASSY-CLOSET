@@ -565,6 +565,7 @@ class _StyleMatrixDialogState extends State<StyleMatrixDialog> {
           helperText: 'Add suppliers on the Supplier page first.',
         ),
         items: [
+          const DropdownMenuItem(value: '', child: Text('No supplier')),
           for (final name in names)
             DropdownMenuItem(value: name, child: Text(name)),
         ],

@@ -6,6 +6,7 @@ import '../../../core/services/retail_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/utils/search.dart';
 import '../../../core/widgets/ui_kit.dart';
 
 /// Receiving a delivery: stock in, cost updated, supplier balance adjusted.
@@ -41,23 +42,17 @@ class _PurchasesPageState extends State<PurchasesPage> {
 
   List<ProductRecord> get _visible {
     final query = _search.text.trim().toLowerCase();
-    final supplierName = _store.suppliers
-        .where((s) => s.id == _supplierId)
-        .map((s) => s.name)
-        .firstOrNull;
     final active = _store.products.where(
       (p) =>
-          p.active &&
-          (supplierName == null ||
-              p.supplier.trim().toLowerCase() ==
-                  supplierName.trim().toLowerCase()),
+          p.active && (_supplierId == null || p.supplierId == _supplierId),
     );
     if (query.isEmpty) return active.take(40).toList();
     return active
         .where(
-          (p) => '${p.name} ${p.sku} ${p.barcode} ${p.size} ${p.color}'
-              .toLowerCase()
-              .contains(query),
+          (p) => AppSearch.matches(
+            '${p.name} ${p.sku} ${p.barcode} ${p.size} ${p.color}',
+            query,
+          ),
         )
         .toList();
   }

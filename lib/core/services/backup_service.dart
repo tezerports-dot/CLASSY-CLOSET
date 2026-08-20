@@ -36,6 +36,9 @@ class BackupService {
 
   final AppDatabase _db;
   Timer? _excelTimer;
+  Timer? _zipTimer;
+  Future<BackupResult>? _excelBackupInFlight;
+  Future<BackupResult>? _zipBackupInFlight;
 
   static const _dbFileName = 'retailpro.sqlite';
 
@@ -48,16 +51,83 @@ class BackupService {
     return folder;
   }
 
-  Future<void> startAutomaticExcelBackup() async {
-    await writeAutomaticExcelBackup();
+  Future<Directory> automaticZipDirectory() async {
+    final documents = await getApplicationDocumentsDirectory();
+    final folder = Directory(
+      p.join(documents.path, 'Classy Closet Automatic Zip Backup'),
+    );
+    if (!folder.existsSync()) folder.createSync(recursive: true);
+    return folder;
+  }
+
+  void startAutomaticExcelBackup() {
+    unawaited(writeAutomaticExcelBackup());
+    unawaited(writeAutomaticZipBackup());
     _excelTimer?.cancel();
+    _zipTimer?.cancel();
     _excelTimer = Timer.periodic(
       const Duration(minutes: 10),
-      (_) => writeAutomaticExcelBackup(),
+      (_) => unawaited(writeAutomaticExcelBackup()),
+    );
+    _zipTimer = Timer.periodic(
+      const Duration(hours: 6),
+      (_) => unawaited(writeAutomaticZipBackup()),
     );
   }
 
-  Future<BackupResult> writeAutomaticExcelBackup() async {
+  Future<BackupResult> writeAutomaticExcelBackup() {
+    final active = _excelBackupInFlight;
+    if (active != null) return active;
+
+    final backup = _writeAutomaticExcelBackup();
+    _excelBackupInFlight = backup;
+    backup.whenComplete(() {
+      if (identical(_excelBackupInFlight, backup)) {
+        _excelBackupInFlight = null;
+      }
+    });
+    return backup;
+  }
+
+  Future<BackupResult> writeAutomaticZipBackup() {
+    final active = _zipBackupInFlight;
+    if (active != null) return active;
+
+    final backup = _writeAutomaticZipBackup();
+    _zipBackupInFlight = backup;
+    backup.whenComplete(() {
+      if (identical(_zipBackupInFlight, backup)) {
+        _zipBackupInFlight = null;
+      }
+    });
+    return backup;
+  }
+
+  Future<BackupResult> _writeAutomaticZipBackup() async {
+    final folder = await automaticZipDirectory();
+    final result = await backupTo(p.join(folder.path, defaultBackupFileName()));
+    if (result.success) await _pruneAutomaticZipBackups(folder);
+    return result;
+  }
+
+  Future<void> _pruneAutomaticZipBackups(Directory folder) async {
+    final backups = folder
+        .listSync()
+        .whereType<File>()
+        .where((file) => p.basename(file.path).startsWith('retailpro-backup-'))
+        .toList()
+      ..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+
+    for (final file in backups.skip(30)) {
+      try {
+        file.deleteSync();
+      } on FileSystemException {
+        // A locked old backup is harmless; try pruning again next time.
+      }
+    }
+  }
+
+  Future<BackupResult> _writeAutomaticExcelBackup() async {
     try {
       await _db.customStatement('PRAGMA wal_checkpoint(PASSIVE)');
       final folder = await automaticExcelDirectory();

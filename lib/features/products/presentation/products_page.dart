@@ -7,6 +7,7 @@ import '../../../core/services/permissions.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/utils/search.dart';
 import '../../../core/widgets/ui_kit.dart';
 import 'widgets/label_print_dialog.dart';
 import 'widgets/product_form_dialog.dart';
@@ -133,9 +134,10 @@ class _ProductsPageState extends State<ProductsPage> {
   Widget _styleGrid(BuildContext context) {
     final styles = _store.styles
         .where(
-          (s) => '${s.styleCode} ${s.name} ${s.category} ${s.brand} ${s.season}'
-              .toLowerCase()
-              .contains(_query),
+          (s) => AppSearch.matches(
+            '${s.styleCode} ${s.name} ${s.category} ${s.brand} ${s.season}',
+            _query,
+          ),
         )
         .toList();
 
@@ -264,7 +266,7 @@ class _ProductsPageState extends State<ProductsPage> {
                           const Spacer(),
                           IconButton(
                             tooltip: 'Delete design',
-                            onPressed: () => _deleteStyle(style),
+                            onPressed: () => _confirmDeleteStyle(style),
                             icon: const Icon(
                               Icons.delete_outline,
                               size: 17,
@@ -325,10 +327,10 @@ class _ProductsPageState extends State<ProductsPage> {
   Widget _unitTable() {
     final rows = _store.products
         .where(
-          (p) =>
-              '${p.sku} ${p.name} ${p.category} ${p.brand} ${p.barcode} ${p.size} ${p.color}'
-                  .toLowerCase()
-                  .contains(_query),
+          (p) => AppSearch.matches(
+            '${p.sku} ${p.name} ${p.category} ${p.brand} ${p.barcode} ${p.size} ${p.color}',
+            _query,
+          ),
         )
         .toList();
 
@@ -416,7 +418,29 @@ class _ProductsPageState extends State<ProductsPage> {
     await _store.deleteProduct(product.id);
   }
 
-  Future<void> _deleteStyle(StyleRecord style) async {
-    await _store.deleteStyle(style.id);
+  Future<void> _confirmDeleteStyle(StyleRecord style) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete design?'),
+        content: Text(
+          'This will deactivate ${style.name} and all of its variants, and set '
+          'their stock to zero. This cannot be undone automatically.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete design'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _store.deleteStyle(style.id);
+    }
   }
 }

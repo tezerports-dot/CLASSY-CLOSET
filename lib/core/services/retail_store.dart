@@ -244,6 +244,7 @@ class ProductRecord {
     required this.location,
     this.description = '',
     this.supplier = '',
+    this.supplierId,
     this.wholesalePrice = 0,
     this.taxRate = 0,
     this.maximumStock,
@@ -270,6 +271,7 @@ class ProductRecord {
   final String location;
   final String description;
   final String supplier;
+  final int? supplierId;
   final double wholesalePrice;
   final double taxRate;
   final double? maximumStock;
@@ -828,14 +830,17 @@ class RetailStore extends ChangeNotifier {
       );
       if (product.id == 0) {
         productId = await _db.into(_db.products).insert(companion);
-        if (product.stock != 0) {
+        final openingStock = product.stock
+            .clamp(0, double.infinity)
+            .toDouble();
+        if (openingStock != 0) {
           await _db
               .into(_db.inventoryMovements)
               .insert(
                 InventoryMovementsCompanion.insert(
                   productId: productId,
                   movementType: 'opening',
-                  quantity: product.stock,
+                  quantity: openingStock,
                   referenceType: const Value('products'),
                   referenceId: Value(productId),
                 ),
@@ -991,7 +996,9 @@ class RetailStore extends ChangeNotifier {
           purchasePrice: Value(variant.purchasePrice),
           sellingPrice: Value(variant.sellingPrice),
           taxRate: Value(variant.taxRate),
-          currentStock: Value(variant.stock),
+          currentStock: Value(
+            variant.stock.clamp(0, double.infinity).toDouble(),
+          ),
           minimumStock: Value(variant.minimumStock),
           location: Value(
             variant.location.trim().isEmpty ? null : variant.location.trim(),
@@ -1002,14 +1009,17 @@ class RetailStore extends ChangeNotifier {
         if (match == null) {
           final id = await _db.into(_db.products).insert(row);
           keptIds.add(id);
-          if (variant.stock != 0) {
+          final openingStock = variant.stock
+              .clamp(0, double.infinity)
+              .toDouble();
+          if (openingStock != 0) {
             await _db
                 .into(_db.inventoryMovements)
                 .insert(
                   InventoryMovementsCompanion.insert(
                     productId: id,
                     movementType: 'opening',
-                    quantity: variant.stock,
+                    quantity: openingStock,
                     referenceType: const Value('product_styles'),
                     referenceId: Value(styleId),
                   ),
@@ -3397,6 +3407,7 @@ class RetailStore extends ChangeNotifier {
                 location: p.location ?? '',
                 description: p.description ?? '',
                 supplier: suppliersById[p.supplierId] ?? '',
+                supplierId: p.supplierId,
                 wholesalePrice: p.wholesalePrice,
                 taxRate: p.taxRate,
                 maximumStock: p.maximumStock,

@@ -310,6 +310,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
           helperText: 'Suppliers are managed on the Supplier page.',
         ),
         items: [
+          const DropdownMenuItem(value: '', child: Text('No supplier')),
           for (final name in names)
             DropdownMenuItem(value: name, child: Text(name)),
         ],

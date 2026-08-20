@@ -5,6 +5,7 @@ import '../../../core/services/permissions.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/services/statements.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/utils/search.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/ui_kit.dart';
 import '../../parties/presentation/widgets/party_actions.dart';
@@ -43,7 +44,8 @@ class _CustomersPageState extends State<CustomersPage> {
         final all = _store.customers;
         final rows = all
             .where(
-              (c) => '${c.name} ${c.phone} ${c.email}'.toLowerCase().contains(
+              (c) => AppSearch.matches(
+                '${c.name} ${c.phone} ${c.email}',
                 query,
               ),
             )
