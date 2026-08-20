@@ -95,7 +95,8 @@ class _ProductsPageState extends State<ProductsPage> {
                 subtitle: _showUnits
                     ? 'Every piece with its own barcode. Click a name to '
                           'correct one unit.'
-                    : 'Each card is a design with its full size and colour run.',
+                    : 'Each card is a design with its full size and colour '
+                          'run.',
                 child: Column(
                   children: [
                     TextField(
@@ -328,7 +329,8 @@ class _ProductsPageState extends State<ProductsPage> {
     final rows = _store.products
         .where(
           (p) => AppSearch.matches(
-            '${p.sku} ${p.name} ${p.category} ${p.brand} ${p.barcode} ${p.size} ${p.color}',
+            '${p.sku} ${p.name} ${p.category} ${p.brand} ${p.barcode} '
+            '${p.size} ${p.color}',
             _query,
           ),
         )

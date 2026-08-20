@@ -596,7 +596,8 @@ class _PosPageState extends State<PosPage> {
         const SizedBox(height: AppSpacing.base),
         if (_paymentMode == _PaymentMode.cash) ...[
           Text(
-            'Cash sale: checkout records the exact bill total. No change due or transaction reference is needed.',
+            'Cash sale: checkout records the exact bill total. No change due '
+            'or transaction reference is needed.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: AppColors.inkSoft,
             ),
@@ -788,7 +789,9 @@ class _PosPageState extends State<PosPage> {
     _PaymentMode.cash => _cartTotal,
     _PaymentMode.card || _PaymentMode.upi => _cartTotal,
     _PaymentMode.split =>
-      _parse(_splitCash.text) + _parse(_splitCard.text) + _parse(_splitUpi.text),
+      _parse(_splitCash.text) +
+          _parse(_splitCard.text) +
+          _parse(_splitUpi.text),
   };
 
   String get _paymentLabel => switch (_paymentMode) {

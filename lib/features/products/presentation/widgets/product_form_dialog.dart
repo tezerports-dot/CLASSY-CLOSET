@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/services/retail_store.dart';
+import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/validators.dart';
 
 class ProductFormDialog extends StatefulWidget {
@@ -201,7 +202,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                   title: Text(
                     _expiryDate == null
                         ? 'No expiry date'
-                        : 'Expiry: ${_expiryDate!.toIso8601String().split('T').first}',
+                        : 'Expiry: ${AppFormatters.date(_expiryDate!)}',
                   ),
                   trailing: Wrap(
                     spacing: 8,

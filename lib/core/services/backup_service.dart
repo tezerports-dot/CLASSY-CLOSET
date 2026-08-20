@@ -155,7 +155,9 @@ class BackupService {
           message: 'Could not create the Excel backup.',
         );
       }
-      final target = File(p.join(folder.path, 'classy-closet-live-backup.xlsx'));
+      final target = File(
+        p.join(folder.path, 'classy-closet-live-backup.xlsx'),
+      );
       await target.writeAsBytes(bytes, flush: true);
       return BackupResult(
         success: true,
@@ -362,8 +364,8 @@ class BackupService {
         return const BackupResult(
           success: false,
           message:
-              'That zip does not contain a Classy Closet database, so it is not a '
-              'backup of this app.',
+              'That zip does not contain a Classy Closet database, so it is '
+              'not a backup of this app.',
         );
       }
       return BackupResult(
@@ -424,8 +426,9 @@ class BackupService {
       return BackupResult(
         success: true,
         message:
-            'Restored \$written file(s). Close and reopen Classy Closet to finish. '
-            'Your previous data was kept at ${p.basename(safetyCopy.path)}.',
+            'Restored \$written file(s). Close and reopen Classy Closet to '
+            'finish. Your previous data was kept at '
+            '${p.basename(safetyCopy.path)}.',
         path: target.path,
         fileCount: written,
       );

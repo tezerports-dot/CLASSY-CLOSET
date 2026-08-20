@@ -1059,7 +1059,8 @@ class RetailStore extends ChangeNotifier {
     final target = File(
       p.join(
         images.path,
-        'product_${productId}_${DateTime.now().millisecondsSinceEpoch}$extension',
+        'product_${productId}_${DateTime.now().millisecondsSinceEpoch}'
+        '$extension',
       ),
     );
     await source.copy(target.path);
@@ -2765,7 +2766,10 @@ class RetailStore extends ChangeNotifier {
                     product.name,
                     if ((product.color ?? '').isNotEmpty ||
                         (product.size ?? '').isNotEmpty)
-                      '(${[product.color ?? '', product.size ?? ''].where((v) => v.isNotEmpty).join(' / ')})',
+                      '(${[
+                        product.color ?? '',
+                        product.size ?? '',
+                      ].where((v) => v.isNotEmpty).join(' / ')})',
                   ].join(' ');
             return ReturnableLine(
               saleItemId: item.id,
@@ -3572,7 +3576,8 @@ class RetailStore extends ChangeNotifier {
       ..addAll(
         rows.map(
           (a) =>
-              '${a.createdAt.toIso8601String()} [${a.action}] ${a.payloadJson ?? a.entityType}',
+              '${a.createdAt.toIso8601String()} [${a.action}] '
+              '${a.payloadJson ?? a.entityType}',
         ),
       );
   }
