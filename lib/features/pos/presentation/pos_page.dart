@@ -12,6 +12,7 @@ import '../../../core/services/retail_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/utils/search.dart';
 import '../../../core/widgets/ui_kit.dart';
 import '../data/invoice_document.dart';
 import '../data/repositories/pos_repository.dart';
@@ -59,6 +60,7 @@ class _PosPageState extends State<PosPage> {
   final _splitCard = TextEditingController();
   final _splitUpi = TextEditingController();
   final _billDiscount = TextEditingController();
+  final _paymentReference = TextEditingController();
 
   CustomerRecord? _selectedCustomer;
   _PaymentMode _paymentMode = _PaymentMode.cash;
@@ -94,6 +96,7 @@ class _PosPageState extends State<PosPage> {
     _splitCard.dispose();
     _splitUpi.dispose();
     _billDiscount.dispose();
+    _paymentReference.dispose();
     super.dispose();
   }
 
@@ -593,7 +596,8 @@ class _PosPageState extends State<PosPage> {
         const SizedBox(height: AppSpacing.base),
         if (_paymentMode == _PaymentMode.cash) ...[
           Text(
-            'Cash sale: checkout records the exact bill total. No change due or transaction reference is needed.',
+            'Cash sale: checkout records the exact bill total. No change due '
+            'or transaction reference is needed.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: AppColors.inkSoft,
             ),
@@ -666,10 +670,15 @@ class _PosPageState extends State<PosPage> {
         ],
         if (_paymentMode != _PaymentMode.cash) ...[
           const SizedBox(height: AppSpacing.sm),
-          Text(
-            'Paytm POS will collect the card/UPI payment and return the transaction reference automatically before printing.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: AppColors.inkSoft,
+          SizedBox(
+            height: 38,
+            child: TextField(
+              controller: _paymentReference,
+              decoration: const InputDecoration(
+                labelText: 'Payment reference',
+                hintText: 'Enter verified terminal / UPI ref',
+                isDense: true,
+              ),
             ),
           ),
         ],
@@ -730,9 +739,10 @@ class _PosPageState extends State<PosPage> {
     if (query.isEmpty) return active.take(60).toList();
     return active
         .where(
-          (p) => '${p.name} ${p.sku} ${p.barcode} ${p.size} ${p.color}'
-              .toLowerCase()
-              .contains(query),
+          (p) => AppSearch.matches(
+            '${p.name} ${p.sku} ${p.barcode} ${p.size} ${p.color}',
+            query,
+          ),
         )
         .toList();
   }
@@ -779,7 +789,9 @@ class _PosPageState extends State<PosPage> {
     _PaymentMode.cash => _cartTotal,
     _PaymentMode.card || _PaymentMode.upi => _cartTotal,
     _PaymentMode.split =>
-      _parse(_splitCash.text) + _parse(_splitCard.text) + _parse(_splitUpi.text),
+      _parse(_splitCash.text) +
+          _parse(_splitCard.text) +
+          _parse(_splitUpi.text),
   };
 
   String get _paymentLabel => switch (_paymentMode) {
@@ -890,6 +902,7 @@ class _PosPageState extends State<PosPage> {
     _splitCash.clear();
     _splitCard.clear();
     _splitUpi.clear();
+    _paymentReference.clear();
     _billDiscount.clear();
   }
 
@@ -925,13 +938,6 @@ class _PosPageState extends State<PosPage> {
     );
   }
 
-  Future<String> _paytmReference(String paymentMethod) async {
-    if (paymentMethod == 'cash') return '';
-    await Future<void>.delayed(const Duration(milliseconds: 350));
-    final stamp = DateTime.now().millisecondsSinceEpoch;
-    return 'PAYTM-$stamp';
-  }
-
   // ----------------------------------------------------------------- actions
 
   /// Builds the printable invoice for whatever is on the counter now.
@@ -961,15 +967,19 @@ class _PosPageState extends State<PosPage> {
       );
 
   Future<void> _checkout(BuildContext context) async {
-    final receiptLines = List<CartLine>.from(_store.cart);
-    final customer = await _customerForManualEntry();
-    final paid = _paidAmount;
-    final paymentMethod = _paymentMethodValue;
-    final cashAmount = _cashAmountForSale;
-    final cardAmount = _cardAmountForSale;
-    final upiAmount = _upiAmountForSale;
+    if (_checkingOut) return;
     setState(() => _checkingOut = true);
     try {
+      final receiptLines = List<CartLine>.from(_store.cart);
+      final customer = await _customerForManualEntry();
+      final paid = _paidAmount;
+      final paymentMethod = _paymentMethodValue;
+      final cashAmount = _cashAmountForSale;
+      final cardAmount = _cardAmountForSale;
+      final upiAmount = _upiAmountForSale;
+      final paymentReference = paymentMethod == 'cash'
+          ? ''
+          : _paymentReference.text.trim();
       final sale = await _posRepository.checkout(
         customer: customer,
         paid: paid,
@@ -977,7 +987,7 @@ class _PosPageState extends State<PosPage> {
         cashAmount: cashAmount,
         cardAmount: cardAmount,
         upiAmount: upiAmount,
-        paymentReference: await _paytmReference(paymentMethod),
+        paymentReference: paymentReference,
       );
       final invoice = _invoiceFor(sale, receiptLines, paid);
       _resetPaymentInputs();

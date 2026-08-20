@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/services/retail_store.dart';
+import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/validators.dart';
 
 class ProductFormDialog extends StatefulWidget {
@@ -201,7 +202,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                   title: Text(
                     _expiryDate == null
                         ? 'No expiry date'
-                        : 'Expiry: ${_expiryDate!.toIso8601String().split('T').first}',
+                        : 'Expiry: ${AppFormatters.date(_expiryDate!)}',
                   ),
                   trailing: Wrap(
                     spacing: 8,
@@ -310,6 +311,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
           helperText: 'Suppliers are managed on the Supplier page.',
         ),
         items: [
+          const DropdownMenuItem(value: '', child: Text('No supplier')),
           for (final name in names)
             DropdownMenuItem(value: name, child: Text(name)),
         ],

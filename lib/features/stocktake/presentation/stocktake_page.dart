@@ -4,6 +4,7 @@ import '../../../app/di/injection.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/services/stocktake.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/utils/search.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/ui_kit.dart';
@@ -322,9 +323,10 @@ class _StocktakePageState extends State<StocktakePage> {
     final matches = _store.products
         .where((p) => p.active)
         .where(
-          (p) => '${p.name} ${p.sku} ${p.barcode} ${p.size} ${p.color}'
-              .toLowerCase()
-              .contains(query),
+          (p) => AppSearch.matches(
+            '${p.name} ${p.sku} ${p.barcode} ${p.size} ${p.color}',
+            query,
+          ),
         )
         .take(6)
         .toList();
@@ -648,7 +650,8 @@ class _AdjustDialogState extends State<_AdjustDialog> {
         : widget.store.products
               .where((p) => p.active)
               .where(
-                (p) => '${p.name} ${p.sku} ${p.barcode}'.toLowerCase().contains(
+                (p) => AppSearch.matches(
+                  '${p.name} ${p.sku} ${p.barcode}',
                   query,
                 ),
               )

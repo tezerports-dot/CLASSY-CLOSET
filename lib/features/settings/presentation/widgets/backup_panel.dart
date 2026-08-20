@@ -24,9 +24,10 @@ class _BackupPanelState extends State<BackupPanel> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'The app now also keeps a live Excel workbook on this PC/laptop and '
-          'refreshes it automatically while the app is open. The zip backup '
-          'still holds your database, shop logo and product photos in one file.',
+          'The app now keeps live Excel and automatic zip backups in Documents '
+          'while it is open. The zip backup holds your database, shop logo and '
+          'product photos in one file, so a reinstall or app update can be '
+          'restored from that folder.',
           style: theme.textTheme.bodyMedium,
         ),
         const SizedBox(height: 16),
@@ -106,9 +107,10 @@ class _BackupPanelState extends State<BackupPanel> {
         ],
         const SizedBox(height: 16),
         Text(
-          'The Excel workbook is saved under Documents/Classy Closet Automatic '
-          'Excel Backup. Restoring from a zip replaces everything currently in '
-          'the app.',
+          'Excel files are saved under Documents/Classy Closet Automatic Excel '
+          'Backup. Automatic restore zip files are saved under Documents/Classy '
+          'Closet Automatic Zip Backup. Keep the Documents folder or sync it '
+          'with OneDrive/Google Drive if this PC is replaced.',
           style: theme.textTheme.bodySmall,
         ),
       ],
