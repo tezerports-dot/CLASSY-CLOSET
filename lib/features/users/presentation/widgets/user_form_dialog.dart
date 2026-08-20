@@ -112,14 +112,22 @@ class _UserFormDialogState extends State<UserFormDialog> {
                   onChanged: (value) => setState(() => _role = value ?? _role),
                 ),
                 const SizedBox(height: 8),
-                // Spelling out the grants avoids the owner having to guess what
-                // a role name implies.
+                Text(
+                  'All permissions',
+                  style: theme.textTheme.labelLarge,
+                ),
+                const SizedBox(height: 6),
+                // Show every grant first; selected chips are included in the
+                // chosen role and unselected chips show what can be granted by
+                // moving the staff member to a stronger role.
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
                   children: [
-                    for (final permission in permissionsFor(_role))
-                      Chip(
+                    for (final permission in Permission.values)
+                      FilterChip(
+                        selected: permissionsFor(_role).contains(permission),
+                        onSelected: null,
                         label: Text(_short(permission)),
                         visualDensity: VisualDensity.compact,
                         padding: EdgeInsets.zero,

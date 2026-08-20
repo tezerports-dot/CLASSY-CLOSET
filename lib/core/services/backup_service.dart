@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:excel/excel.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -33,8 +35,179 @@ class BackupService {
   BackupService(this._db);
 
   final AppDatabase _db;
+  Timer? _excelTimer;
 
   static const _dbFileName = 'retailpro.sqlite';
+
+  Future<Directory> automaticExcelDirectory() async {
+    final documents = await getApplicationDocumentsDirectory();
+    final folder = Directory(
+      p.join(documents.path, 'Classy Closet Automatic Excel Backup'),
+    );
+    if (!folder.existsSync()) folder.createSync(recursive: true);
+    return folder;
+  }
+
+  Future<void> startAutomaticExcelBackup() async {
+    await writeAutomaticExcelBackup();
+    _excelTimer?.cancel();
+    _excelTimer = Timer.periodic(
+      const Duration(minutes: 10),
+      (_) => writeAutomaticExcelBackup(),
+    );
+  }
+
+  Future<BackupResult> writeAutomaticExcelBackup() async {
+    try {
+      await _db.customStatement('PRAGMA wal_checkpoint(PASSIVE)');
+      final folder = await automaticExcelDirectory();
+      final excel = Excel.createExcel();
+      excel.rename('Sheet1', 'Products');
+      _writeProducts(excel['Products'], await _db.select(_db.products).get());
+      _writeCustomers(
+        excel['Customers'],
+        await _db.select(_db.customers).get(),
+      );
+      _writeSuppliers(
+        excel['Suppliers'],
+        await _db.select(_db.suppliers).get(),
+      );
+      _writePurchases(
+        excel['Purchases'],
+        await _db.select(_db.purchases).get(),
+      );
+      _writeSales(excel['Sales'], await _db.select(_db.sales).get());
+
+      final bytes = excel.save(fileName: 'classy-closet-live-backup.xlsx');
+      if (bytes == null) {
+        return const BackupResult(
+          success: false,
+          message: 'Could not create the Excel backup.',
+        );
+      }
+      final target = File(p.join(folder.path, 'classy-closet-live-backup.xlsx'));
+      await target.writeAsBytes(bytes, flush: true);
+      return BackupResult(
+        success: true,
+        message: 'Automatic Excel backup updated.',
+        path: target.path,
+        fileCount: 1,
+        bytes: bytes.length,
+      );
+    } on Object catch (e) {
+      return BackupResult(
+        success: false,
+        message: 'Automatic Excel backup failed: $e',
+      );
+    }
+  }
+
+  void _row(Sheet sheet, List<Object?> values) {
+    sheet.appendRow([
+      for (final value in values)
+        if (value is num)
+          DoubleCellValue(value.toDouble())
+        else
+          TextCellValue(value?.toString() ?? ''),
+    ]);
+  }
+
+  void _writeProducts(Sheet sheet, List<ProductRow> rows) {
+    _row(sheet, const [
+      'ID',
+      'SKU',
+      'Barcode',
+      'Name',
+      'Size',
+      'Colour',
+      'Stock',
+      'Purchase price',
+      'Selling price',
+      'Active',
+    ]);
+    for (final r in rows) {
+      _row(sheet, [
+        r.id,
+        r.sku,
+        r.barcode,
+        r.name,
+        r.size,
+        r.color,
+        r.currentStock < 0 ? 0 : r.currentStock,
+        r.purchasePrice,
+        r.sellingPrice,
+        r.isActive ? 'Yes' : 'No',
+      ]);
+    }
+  }
+
+  void _writeCustomers(Sheet sheet, List<CustomerRow> rows) {
+    _row(sheet, const ['ID', 'Name', 'Phone', 'Email', 'Balance']);
+    for (final r in rows) {
+      _row(sheet, [r.id, r.name, r.phone, r.email, r.currentBalance]);
+    }
+  }
+
+  void _writeSuppliers(Sheet sheet, List<SupplierRow> rows) {
+    _row(sheet, const ['ID', 'Name', 'Phone', 'Email', 'Balance']);
+    for (final r in rows) {
+      _row(sheet, [r.id, r.name, r.phone, r.email, r.currentBalance]);
+    }
+  }
+
+  void _writePurchases(Sheet sheet, List<PurchaseRow> rows) {
+    _row(sheet, const [
+      'ID',
+      'Supplier ID',
+      'Invoice number',
+      'Total',
+      'Paid',
+      'Outstanding',
+      'Purchased at',
+    ]);
+    for (final r in rows) {
+      _row(sheet, [
+        r.id,
+        r.supplierId,
+        r.invoiceNumber,
+        r.grandTotal,
+        r.paidAmount,
+        r.grandTotal - r.paidAmount,
+        r.purchasedAt.toIso8601String(),
+      ]);
+    }
+  }
+
+  void _writeSales(Sheet sheet, List<SaleRow> rows) {
+    _row(sheet, const [
+      'ID',
+      'Bill number',
+      'Customer ID',
+      'Total',
+      'Paid',
+      'Method',
+      'Cash',
+      'Card',
+      'UPI',
+      'Txn reference',
+      'Sold at',
+    ]);
+    for (final r in rows) {
+      _row(sheet, [
+        r.id,
+        r.receiptNumber,
+        r.customerId,
+        r.grandTotal,
+        r.paidAmount,
+        r.paymentMethod,
+        r.cashAmount,
+        r.cardAmount,
+        r.upiAmount,
+        r.paymentReference,
+        r.soldAt.toIso8601String(),
+      ]);
+    }
+  }
 
   Future<Directory> _dataDirectory() async {
     final support = await getApplicationSupportDirectory();

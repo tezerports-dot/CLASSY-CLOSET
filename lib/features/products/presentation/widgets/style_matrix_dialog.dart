@@ -220,7 +220,7 @@ class _StyleMatrixDialogState extends State<StyleMatrixDialog> {
           const SizedBox(width: 12),
           Expanded(child: _text(_brand, 'Brand')),
           const SizedBox(width: 12),
-          Expanded(child: _text(_supplier, 'Supplier')),
+          Expanded(child: _supplierPicker()),
         ],
       ),
       Row(
@@ -549,6 +549,29 @@ class _StyleMatrixDialogState extends State<StyleMatrixDialog> {
       onChanged: onChanged,
     ),
   );
+
+  Widget _supplierPicker() {
+    final names = widget.store.suppliers.map((s) => s.name).toSet().toList()
+      ..sort();
+    final value = names.contains(_supplier.text) ? _supplier.text : null;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DropdownButtonFormField<String>(
+        initialValue: value,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Supplier',
+          isDense: true,
+          helperText: 'Add suppliers on the Supplier page first.',
+        ),
+        items: [
+          for (final name in names)
+            DropdownMenuItem(value: name, child: Text(name)),
+        ],
+        onChanged: (value) => setState(() => _supplier.text = value ?? ''),
+      ),
+    );
+  }
 
   Future<void> _pickImage() async {
     final result = await FilePicker.platform.pickFiles(

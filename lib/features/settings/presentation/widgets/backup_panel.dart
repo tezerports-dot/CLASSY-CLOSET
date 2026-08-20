@@ -24,9 +24,9 @@ class _BackupPanelState extends State<BackupPanel> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'A backup holds your sales, products, customers, the shop logo and '
-          'every product photo, in one zip file. Keep it somewhere other than '
-          'this computer — a pen drive or an external disk.',
+          'The app now also keeps a live Excel workbook on this PC/laptop and '
+          'refreshes it automatically while the app is open. The zip backup '
+          'still holds your database, shop logo and product photos in one file.',
           style: theme.textTheme.bodyMedium,
         ),
         const SizedBox(height: 16),
@@ -48,6 +48,11 @@ class _BackupPanelState extends State<BackupPanel> {
               onPressed: _busy ? null : _restore,
               icon: const Icon(Icons.settings_backup_restore),
               label: const Text('Restore from a backup'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : _excelBackupNow,
+              icon: const Icon(Icons.table_chart_outlined),
+              label: const Text('Update Excel now'),
             ),
           ],
         ),
@@ -101,8 +106,9 @@ class _BackupPanelState extends State<BackupPanel> {
         ],
         const SizedBox(height: 16),
         Text(
-          'Do this at the end of every trading day. Restoring replaces '
-          'everything currently in the app.',
+          'The Excel workbook is saved under Documents/Classy Closet Automatic '
+          'Excel Backup. Restoring from a zip replaces everything currently in '
+          'the app.',
           style: theme.textTheme.bodySmall,
         ),
       ],
@@ -122,6 +128,16 @@ class _BackupPanelState extends State<BackupPanel> {
     final result = await widget.service.backupTo(
       path.toLowerCase().endsWith('.zip') ? path : '$path.zip',
     );
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _last = result;
+    });
+  }
+
+  Future<void> _excelBackupNow() async {
+    setState(() => _busy = true);
+    final result = await widget.service.writeAutomaticExcelBackup();
     if (!mounted) return;
     setState(() {
       _busy = false;

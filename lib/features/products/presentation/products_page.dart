@@ -262,6 +262,15 @@ class _ProductsPageState extends State<ProductsPage> {
                             label: const Text('Labels'),
                           ),
                           const Spacer(),
+                          IconButton(
+                            tooltip: 'Delete design',
+                            onPressed: () => _deleteStyle(style),
+                            icon: const Icon(
+                              Icons.delete_outline,
+                              size: 17,
+                              color: AppColors.danger,
+                            ),
+                          ),
                           TextButton.icon(
                             onPressed: () => _openStyleForm(style),
                             icon: const Icon(Icons.edit_outlined, size: 15),
@@ -334,6 +343,7 @@ class _ProductsPageState extends State<ProductsPage> {
         DataColumn(label: Text('HSN')),
         DataColumn(label: Text('STOCK')),
         DataColumn(label: Text('PRICE'), numeric: true),
+        DataColumn(label: Text('')),
       ],
       empty: EmptyState(
         icon: _store.products.isEmpty
@@ -362,6 +372,13 @@ class _ProductsPageState extends State<ProductsPage> {
               DataCell(CodeText(p.hsnCode, size: 12)),
               DataCell(StockPill(stock: p.stock, minimum: p.minimumStock)),
               DataCell(MoneyText(p.sellingPrice, size: 13)),
+              DataCell(
+                IconButton(
+                  tooltip: 'Delete product',
+                  onPressed: _canEdit ? () => _deleteProduct(p) : null,
+                  icon: const Icon(Icons.delete_outline, size: 17),
+                ),
+              ),
             ],
           ),
       ],
@@ -393,5 +410,13 @@ class _ProductsPageState extends State<ProductsPage> {
       context: context,
       builder: (_) => ProductFormDialog(store: _store, product: product),
     );
+  }
+
+  Future<void> _deleteProduct(ProductRecord product) async {
+    await _store.deleteProduct(product.id);
+  }
+
+  Future<void> _deleteStyle(StyleRecord style) async {
+    await _store.deleteStyle(style.id);
   }
 }

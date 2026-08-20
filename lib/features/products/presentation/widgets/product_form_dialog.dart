@@ -156,11 +156,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: _lookup(
-                        _supplier,
-                        'Supplier',
-                        widget.store.suppliers.map((s) => s.name).toList(),
-                      ),
+                      child: _supplierPicker(),
                     ),
                   ],
                 ),
@@ -296,6 +292,28 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _supplierPicker() {
+    final names = widget.store.suppliers.map((s) => s.name).toSet().toList()
+      ..sort();
+    final value = names.contains(_supplier.text) ? _supplier.text : null;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DropdownButtonFormField<String>(
+        initialValue: value,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Supplier',
+          helperText: 'Suppliers are managed on the Supplier page.',
+        ),
+        items: [
+          for (final name in names)
+            DropdownMenuItem(value: name, child: Text(name)),
+        ],
+        onChanged: (value) => setState(() => _supplier.text = value ?? ''),
       ),
     );
   }

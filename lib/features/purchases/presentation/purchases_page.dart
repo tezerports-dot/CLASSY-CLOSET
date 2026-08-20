@@ -41,7 +41,17 @@ class _PurchasesPageState extends State<PurchasesPage> {
 
   List<ProductRecord> get _visible {
     final query = _search.text.trim().toLowerCase();
-    final active = _store.products.where((p) => p.active);
+    final supplierName = _store.suppliers
+        .where((s) => s.id == _supplierId)
+        .map((s) => s.name)
+        .firstOrNull;
+    final active = _store.products.where(
+      (p) =>
+          p.active &&
+          (supplierName == null ||
+              p.supplier.trim().toLowerCase() ==
+                  supplierName.trim().toLowerCase()),
+    );
     if (query.isEmpty) return active.take(40).toList();
     return active
         .where(

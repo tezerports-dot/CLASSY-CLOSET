@@ -809,7 +809,7 @@ class RetailStore extends ChangeNotifier {
         sellingPrice: Value(product.sellingPrice),
         wholesalePrice: Value(product.wholesalePrice),
         taxRate: Value(product.taxRate),
-        currentStock: Value(product.stock),
+        currentStock: Value(product.stock.clamp(0, double.infinity).toDouble()),
         minimumStock: Value(product.minimumStock),
         maximumStock: Value(product.maximumStock),
         location: Value(
@@ -866,6 +866,33 @@ class RetailStore extends ChangeNotifier {
 
   Future<void> addProduct(ProductRecord product) async {
     await saveProduct(product);
+  }
+
+  Future<void> deleteProduct(int id) async {
+    await (_db.update(_db.products)..where((p) => p.id.equals(id))).write(
+      const ProductsCompanion(isActive: Value(false), currentStock: Value(0)),
+    );
+    await _audit('DELETE', 'products', id, 'Deactivated product $id');
+    await refresh();
+  }
+
+  Future<void> deleteStyle(int id) async {
+    await _db.transaction(() async {
+      await (_db.update(
+        _db.productStyles,
+      )..where((s) => s.id.equals(id))).write(
+        const ProductStylesCompanion(isActive: Value(false)),
+      );
+      await (_db.update(_db.products)..where((p) => p.styleId.equals(id)))
+          .write(
+            const ProductsCompanion(
+              isActive: Value(false),
+              currentStock: Value(0),
+            ),
+          );
+      await _audit('DELETE', 'product_styles', id, 'Deactivated style $id');
+    });
+    await refresh();
   }
 
   /// Saves a design together with its whole size/colour run in one transaction.
@@ -2222,6 +2249,26 @@ class RetailStore extends ChangeNotifier {
             currentBalance: Value(_money(supplier.balance - rounded)),
           ),
         );
+        var remaining = rounded;
+        final duePurchases =
+            await (_db.select(_db.purchases)
+                  ..where((p) => p.supplierId.equals(partyId))
+                  ..orderBy([(p) => OrderingTerm.asc(p.purchasedAt)]))
+                .get();
+        for (final purchase in duePurchases) {
+          if (remaining <= 0) break;
+          final outstanding = _money(purchase.grandTotal - purchase.paidAmount);
+          if (outstanding <= 0) continue;
+          final applied = remaining > outstanding ? outstanding : remaining;
+          await (_db.update(
+            _db.purchases,
+          )..where((p) => p.id.equals(purchase.id))).write(
+            PurchasesCompanion(
+              paidAmount: Value(_money(purchase.paidAmount + applied)),
+            ),
+          );
+          remaining = _money(remaining - applied);
+        }
       }
 
       await _audit(
@@ -3342,7 +3389,7 @@ class RetailStore extends ChangeNotifier {
                 category: categories[p.categoryId] ?? 'General',
                 brand: brands[p.brandId] ?? 'Unbranded',
                 unit: units[p.unitId] ?? 'pcs',
-                stock: p.currentStock,
+                stock: p.currentStock < 0 ? 0 : p.currentStock,
                 minimumStock: p.minimumStock,
                 purchasePrice: p.purchasePrice,
                 sellingPrice: p.sellingPrice,
