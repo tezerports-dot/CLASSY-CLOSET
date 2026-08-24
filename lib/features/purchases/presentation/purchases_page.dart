@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -29,6 +32,11 @@ class _PurchasesPageState extends State<PurchasesPage> {
   bool _saving = false;
   String? _error;
 
+  /// The supplier's own invoice, picked before the delivery is booked. An
+  /// invoice number on its own settles no argument three months later; the
+  /// paper does.
+  String? _invoiceFilePath;
+
   @override
   void dispose() {
     _invoice.dispose();
@@ -43,8 +51,7 @@ class _PurchasesPageState extends State<PurchasesPage> {
   List<ProductRecord> get _visible {
     final query = _search.text.trim().toLowerCase();
     final active = _store.products.where(
-      (p) =>
-          p.active && (_supplierId == null || p.supplierId == _supplierId),
+      (p) => p.active && (_supplierId == null || p.supplierId == _supplierId),
     );
     if (query.isEmpty) return active.take(40).toList();
     return active
@@ -169,12 +176,18 @@ class _PurchasesPageState extends State<PurchasesPage> {
                       ],
                     ),
                     const SizedBox(height: 12),
+                    _invoiceFileRow(context),
+                    const SizedBox(height: 12),
                     TextField(
                       controller: _search,
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.search),
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search),
                         labelText: 'Find the items that arrived',
                         hintText: 'Scan a barcode, or type a name or size',
+                        helperText: _supplierId == null
+                            ? 'Pick the supplier first and only their items '
+                                  'are listed.'
+                            : 'Showing only what this supplier stocks.',
                       ),
                       onChanged: (_) => setState(() {}),
                     ),
@@ -301,6 +314,7 @@ class _PurchasesPageState extends State<PurchasesPage> {
                   DataColumn(label: Text('PAID'), numeric: true),
                   DataColumn(label: Text('STILL OWING'), numeric: true),
                   DataColumn(label: Text('WHEN')),
+                  DataColumn(label: Text('BILL COPY')),
                 ],
                 rows: [
                   for (final p in _store.purchases.take(50))
@@ -310,7 +324,21 @@ class _PurchasesPageState extends State<PurchasesPage> {
                         DataCell(Text(p.supplierName)),
                         DataCell(Text('${p.lineCount}')),
                         DataCell(MoneyText(p.total, size: 13)),
-                        DataCell(MoneyText(p.paid, size: 13)),
+                        // Everything that has reached the supplier for this
+                        // delivery, whether it was handed over on the day or
+                        // settled later on the Suppliers screen. Paying a
+                        // balance off there now shows here too.
+                        DataCell(
+                          Tooltip(
+                            message: p.settled > 0
+                                ? '${AppFormatters.currency(p.paid)} on '
+                                      'delivery, '
+                                      '${AppFormatters.currency(p.settled)} '
+                                      'settled since'
+                                : 'Paid on delivery',
+                            child: MoneyText(p.totalPaid, size: 13),
+                          ),
+                        ),
                         DataCell(
                           p.outstanding <= 0
                               ? const StatusPill('Paid', tone: PillTone.good)
@@ -322,6 +350,7 @@ class _PurchasesPageState extends State<PurchasesPage> {
                                 ),
                         ),
                         DataCell(Text(AppFormatters.date(p.purchasedAt))),
+                        DataCell(_invoiceFileCell(p)),
                       ],
                     ),
                 ],
@@ -399,6 +428,171 @@ class _PurchasesPageState extends State<PurchasesPage> {
     ],
   );
 
+  /// Pick or clear the supplier's own invoice for the delivery being booked.
+  Widget _invoiceFileRow(BuildContext context) {
+    final theme = Theme.of(context);
+    final picked = _invoiceFilePath;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.base,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        border: Border.all(color: AppColors.border),
+        borderRadius: AppRadii.inputBorder,
+      ),
+      child: Row(
+        children: [
+          Icon(
+            picked == null
+                ? Icons.attach_file_rounded
+                : Icons.check_circle_rounded,
+            size: 16,
+            color: picked == null ? AppColors.inkSoft : AppColors.success,
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              picked == null
+                  ? "Attach the supplier's bill — a PDF, or a photo of the "
+                        'paper. Optional, but it is the proof.'
+                  : _fileName(picked),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: picked == null ? AppColors.inkSoft : AppColors.ink,
+              ),
+            ),
+          ),
+          if (picked != null)
+            IconButton(
+              tooltip: 'Remove',
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.close_rounded, size: 16),
+              onPressed: () => setState(() => _invoiceFilePath = null),
+            ),
+          SecondaryButton(
+            label: picked == null ? 'Attach bill' : 'Change',
+            icon: Icons.upload_file_rounded,
+            onPressed: _pickInvoiceFile,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The proof on a delivery already recorded: open it, or attach one that
+  /// turned up after the stock did.
+  Widget _invoiceFileCell(PurchaseRecord purchase) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      if (purchase.hasInvoiceFile)
+        IconButton(
+          tooltip: 'Show the bill copy',
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(
+            Icons.description_rounded,
+            size: 17,
+            color: AppColors.success,
+          ),
+          onPressed: () => _showInvoiceFile(purchase),
+        ),
+      IconButton(
+        tooltip: purchase.hasInvoiceFile
+            ? 'Replace the bill copy'
+            : 'Attach the bill copy',
+        visualDensity: VisualDensity.compact,
+        icon: Icon(
+          purchase.hasInvoiceFile
+              ? Icons.sync_rounded
+              : Icons.upload_file_rounded,
+          size: 17,
+        ),
+        onPressed: () => _attachInvoiceFile(purchase),
+      ),
+    ],
+  );
+
+  String _fileName(String path) => path.split(RegExp(r'[/\\]')).last;
+
+  Future<String?> _chooseFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: RetailStore.purchaseInvoiceExtensions,
+      dialogTitle: "Choose the supplier's bill",
+    );
+    return result?.files.single.path;
+  }
+
+  Future<void> _pickInvoiceFile() async {
+    final path = await _chooseFile();
+    if (path == null || !mounted) return;
+    setState(() => _invoiceFilePath = path);
+  }
+
+  Future<void> _attachInvoiceFile(PurchaseRecord purchase) async {
+    final path = await _chooseFile();
+    if (path == null) return;
+    try {
+      await _store.setPurchaseInvoiceFile(purchase.id, path);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Bill copy attached to ${purchase.invoiceNumber}.'),
+        ),
+      );
+    } on StateError catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  /// Shows the stored copy. Images render in place; a PDF is shown as its
+  /// location, because a counter PC opens PDFs perfectly well on its own and
+  /// bundling a viewer to avoid one double-click is not worth the weight.
+  Future<void> _showInvoiceFile(PurchaseRecord purchase) async {
+    final path = purchase.invoicePath!;
+    final isImage = !path.toLowerCase().endsWith('.pdf');
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Bill copy — ${purchase.invoiceNumber}'),
+        content: SizedBox(
+          width: 560,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (isImage && File(path).existsSync())
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 460),
+                  child: Image.file(File(path), fit: BoxFit.contain),
+                )
+              else
+                Text(
+                  File(path).existsSync()
+                      ? 'Saved as ${_fileName(path)}. Open it from:'
+                      : 'The file is missing from:',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              const SizedBox(height: AppSpacing.sm),
+              SelectableText(path, style: AppTypography.code),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _receive() async {
     setState(() {
       _saving = true;
@@ -420,6 +614,7 @@ class _PurchasesPageState extends State<PurchasesPage> {
         invoiceNumber: _invoice.text,
         lines: lines,
         paidAmount: double.tryParse(_paid.text.trim()) ?? 0,
+        invoiceFilePath: _invoiceFilePath,
       );
 
       if (!mounted) return;
@@ -428,7 +623,10 @@ class _PurchasesPageState extends State<PurchasesPage> {
       }
       _invoice.clear();
       _paid.text = '0';
-      setState(() => _saving = false);
+      setState(() {
+        _saving = false;
+        _invoiceFilePath = null;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Stock added and supplier updated.')),
       );

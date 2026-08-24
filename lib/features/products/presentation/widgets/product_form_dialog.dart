@@ -156,9 +156,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    Expanded(
-                      child: _supplierPicker(),
-                    ),
+                    Expanded(child: _supplierPicker()),
                   ],
                 ),
                 Row(

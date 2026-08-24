@@ -5,7 +5,7 @@
 /// in a normal test run without a printer, a Windows box or a spooler.
 ///
 /// Commands follow the Epson ESC/POS command set, which the generic Chinese
-/// 58 mm and 80 mm printers sold in India implement:
+/// 57 mm and 80 mm printers sold in India implement:
 ///
 ///   ESC @        (1B 40)          initialise
 ///   ESC t n      (1B 74 n)        select character code table, 0 = PC437
@@ -35,7 +35,7 @@ import 'dart:typed_data';
 /// the printer's default font. Those two counts are what the layout code needs;
 /// millimetres never enter into it.
 enum ThermalPaper {
-  mm58(32, 384, '57 mm roll'),
+  mm57(32, 384, '57 mm roll'),
   mm80(48, 576, '80 mm roll');
 
   const ThermalPaper(this.columns, this.dots, this.label);
@@ -44,13 +44,18 @@ enum ThermalPaper {
   final int columns;
 
   /// Printable width in dots, which is what an image has to be sized to.
-  /// 384 and 576 are the two standard head widths.
+  /// 384 and 576 are the two standard head widths: the narrow roll is sold as
+  /// both 57 mm and 58 mm and the paper itself is 57 mm, so that is what the
+  /// shop is shown.
   final int dots;
   final String label;
 
   static ThermalPaper fromName(String? name) => ThermalPaper.values.firstWhere(
     (p) => p.name == name,
-    orElse: () => ThermalPaper.mm80,
+    // Settings written before the narrow roll was renamed say 'mm58'. Reading
+    // those as 80 mm would silently halve every bill's width on the first run
+    // after an update, so the old name still resolves.
+    orElse: () => name == 'mm58' ? ThermalPaper.mm57 : ThermalPaper.mm80,
   );
 }
 
@@ -215,7 +220,7 @@ class EscPosBuilder {
   /// byte, most significant bit leftmost, a set bit meaning a black dot. All
   /// rows must be the same length.
   ///
-  /// `GS v 0` is what the generic 58 mm and 80 mm printers sold in India
+  /// `GS v 0` is what the generic 57 mm and 80 mm printers sold in India
   /// implement. Epson's own reference marks it obsolete in favour of
   /// `GS ( L`, but the newer command is not present on the cheap hardware this
   /// runs against, and there is no printer here to verify a fallback against —

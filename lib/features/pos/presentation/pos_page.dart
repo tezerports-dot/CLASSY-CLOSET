@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:printing/printing.dart';
 import '../../../app/di/injection.dart';
 import '../../../core/services/escpos.dart';
 import '../../../core/services/permissions.dart';
+import '../../../core/services/pos_terminal.dart';
 import '../../../core/services/printer_service.dart';
 import '../../../core/services/receipt_logo.dart';
 import '../../../core/services/retail_store.dart';
@@ -49,6 +51,7 @@ class _PosPageState extends State<PosPage> {
   late final RetailStore _store;
   late final PosRepository _posRepository;
   late final PrinterService _printerService;
+  late final PosTerminalService _terminalService;
 
   final _productSearch = TextEditingController();
 
@@ -57,18 +60,39 @@ class _PosPageState extends State<PosPage> {
   final _customerName = TextEditingController();
   final _customerPhone = TextEditingController();
   final _splitCash = TextEditingController();
+
+  /// The non-cash half of a split, whichever rail it goes down.
   final _splitCard = TextEditingController();
-  final _splitUpi = TextEditingController();
   final _billDiscount = TextEditingController();
   final _paymentReference = TextEditingController();
 
   CustomerRecord? _selectedCustomer;
   _PaymentMode _paymentMode = _PaymentMode.cash;
+
+  /// Which rail the non-cash part of a split goes down. Only one can be used:
+  /// the customer walks to the card machine once, and it either takes their
+  /// card or shows them a QR — it cannot do both for one bill.
+  PosTenderKind _splitTender = PosTenderKind.card;
   InvoicePaper _paper = InvoicePaper.roll80;
   bool _checkingOut = false;
 
+  /// What the card machine is doing right now, shown under the payment
+  /// buttons so the cashier is never left watching a spinner with no idea
+  /// whether the customer has tapped yet.
+  String? _terminalStatus;
+  bool _terminalBusy = false;
+
+  /// Set once the terminal has approved this bill, so a retry after a failed
+  /// print does not charge the customer twice.
+  PosTerminalResult? _approvedPayment;
+
   /// Kept so the counter can reprint the bill it just handed over.
   InvoiceData? _lastInvoice;
+
+  /// The number the next sale will carry, read from the counter without
+  /// taking it. Refreshed after every sale rather than on every build, so the
+  /// bill panel is not doing a database read per frame.
+  String _nextBillNumber = '—';
 
   /// The logo reduced to printer dots. Converting is not free, so it is done
   /// once and reused across bills and reprints.
@@ -81,9 +105,15 @@ class _PosPageState extends State<PosPage> {
     _store = getIt<RetailStore>();
     _posRepository = getIt<PosRepository>();
     _printerService = getIt<PrinterService>();
+    _terminalService = getIt<PosTerminalService>();
     _splitCash.addListener(_onPaymentChanged);
     _splitCard.addListener(_onPaymentChanged);
-    _splitUpi.addListener(_onPaymentChanged);
+    _refreshNextBillNumber();
+  }
+
+  Future<void> _refreshNextBillNumber() async {
+    final next = await _store.peekNextInvoiceNumber();
+    if (mounted) setState(() => _nextBillNumber = next);
   }
 
   @override
@@ -94,7 +124,6 @@ class _PosPageState extends State<PosPage> {
     _customerPhone.dispose();
     _splitCash.dispose();
     _splitCard.dispose();
-    _splitUpi.dispose();
     _billDiscount.dispose();
     _paymentReference.dispose();
     super.dispose();
@@ -224,9 +253,7 @@ class _PosPageState extends State<PosPage> {
                               width: width,
                               child: _ProductTile(
                                 product: p,
-                                onTap: p.stock > 0
-                                    ? () => _posRepository.addToCart(p)
-                                    : null,
+                                onTap: p.stock > 0 ? () => _addToBill(p) : null,
                               ),
                             ),
                         ],
@@ -338,9 +365,25 @@ class _PosPageState extends State<PosPage> {
             child: Row(
               children: [
                 Expanded(
-                  child: Text(
-                    'Current bill',
-                    style: theme.textTheme.titleLarge,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Current bill', style: theme.textTheme.titleLarge),
+                      // Every bill carries a number, allocated in sequence
+                      // within the financial year. Showing the next one before
+                      // it is rung up means the counter can quote it to a
+                      // customer, and it is what the card machine is told too.
+                      Text(
+                        _lastInvoice == null
+                            ? 'Next bill: $_nextBillNumber'
+                            : 'Last bill: ${_lastInvoice!.sale.receipt}',
+                        style: AppTypography.code.copyWith(
+                          fontSize: 10.5,
+                          color: AppColors.inkFaint,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 if (_store.cart.isNotEmpty)
@@ -421,7 +464,6 @@ class _PosPageState extends State<PosPage> {
       igst += tax.igst;
     }
     final discount = _store.cartDiscountTotal;
-    final change = _changeDue(total);
 
     return Container(
       decoration: const BoxDecoration(
@@ -454,7 +496,7 @@ class _PosPageState extends State<PosPage> {
             ],
           ),
           const SizedBox(height: AppSpacing.lg),
-          _paymentControls(context, total, change),
+          _paymentControls(context, total),
           const SizedBox(height: AppSpacing.lg),
           AccentButton(
             label: 'Checkout & print',
@@ -569,8 +611,9 @@ class _PosPageState extends State<PosPage> {
     ),
   );
 
-  Widget _paymentControls(BuildContext context, double total, double change) {
+  Widget _paymentControls(BuildContext context, double total) {
     final theme = Theme.of(context);
+    final terminal = _store.posTerminalSettings;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -584,7 +627,13 @@ class _PosPageState extends State<PosPage> {
                   child: _ModeButton(
                     mode: mode,
                     selected: _paymentMode == mode,
-                    onTap: () => setState(() => _paymentMode = mode),
+                    onTap: () => setState(() {
+                      _paymentMode = mode;
+                      // Switching rails invalidates anything the machine
+                      // already approved for the previous one.
+                      _approvedPayment = null;
+                      _terminalStatus = null;
+                    }),
                   ),
                 ),
                 if (mode != _PaymentMode.values.last)
@@ -594,15 +643,15 @@ class _PosPageState extends State<PosPage> {
           ),
         ),
         const SizedBox(height: AppSpacing.base),
-        if (_paymentMode == _PaymentMode.cash) ...[
+        if (_paymentMode == _PaymentMode.cash)
           Text(
-            'Cash sale: checkout records the exact bill total. No change due '
-            'or transaction reference is needed.',
+            'Cash. Checkout takes the bill total exactly — nothing to type, '
+            'no reference needed.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: AppColors.inkSoft,
             ),
-          ),
-        ] else if (_paymentMode == _PaymentMode.split) ...[
+          )
+        else if (_paymentMode == _PaymentMode.split) ...[
           Row(
             children: [
               Expanded(
@@ -631,58 +680,128 @@ class _PosPageState extends State<PosPage> {
                       decimal: true,
                     ),
                     style: AppTypography.money.copyWith(fontSize: 13.5),
-                    decoration: const InputDecoration(
-                      labelText: 'Card',
+                    decoration: InputDecoration(
+                      labelText: 'On the machine',
                       isDense: true,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: SizedBox(
-                  height: 38,
-                  child: TextField(
-                    controller: _splitUpi,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    style: AppTypography.money.copyWith(fontSize: 13.5),
-                    decoration: const InputDecoration(
-                      labelText: 'UPI',
-                      isDense: true,
+                      helperText: _splitTender.label,
+                      helperStyle: const TextStyle(fontSize: 10),
                     ),
                   ),
                 ),
               ),
             ],
           ),
+          const SizedBox(height: AppSpacing.sm),
+          // Card or QR, never both: the customer goes to the machine once.
+          _tenderChooser(context),
           if ((_paidAmount - total).abs() >= 0.01)
             Padding(
               padding: const EdgeInsets.only(top: AppSpacing.xs),
               child: Text(
-                'The two parts must add up to the total.',
+                'Cash plus the machine has to come to '
+                '${AppFormatters.currency(total)}.',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: AppColors.danger,
                 ),
               ),
             ),
         ],
-        if (_paymentMode != _PaymentMode.cash) ...[
+        if (_needsTerminal) ...[
           const SizedBox(height: AppSpacing.sm),
-          SizedBox(
-            height: 38,
-            child: TextField(
-              controller: _paymentReference,
-              decoration: const InputDecoration(
-                labelText: 'Payment reference',
-                hintText: 'Enter verified terminal / UPI ref',
-                isDense: true,
+          if (terminal.isConfigured && _terminalService.isSupported)
+            _terminalPanel(context)
+          else
+            SizedBox(
+              height: 38,
+              child: TextField(
+                controller: _paymentReference,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Transaction reference',
+                  hintText: "Copy it off the machine's slip",
+                  helperText:
+                      'Connect the Paytm machine under Hardware and this '
+                      'fills in by itself.',
+                  helperStyle: TextStyle(fontSize: 10),
+                  isDense: true,
+                ),
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+
+  /// Card or UPI QR for the non-cash half of a split.
+  Widget _tenderChooser(BuildContext context) => SizedBox(
+    height: 30,
+    child: Row(
+      children: [
+        for (final kind in PosTenderKind.values) ...[
+          Expanded(
+            child: _TenderButton(
+              label: kind.label,
+              icon: kind == PosTenderKind.card
+                  ? Icons.credit_card_rounded
+                  : Icons.qr_code_2_rounded,
+              selected: _splitTender == kind,
+              onTap: () => setState(() {
+                _splitTender = kind;
+                _approvedPayment = null;
+                _terminalStatus = null;
+              }),
+            ),
+          ),
+          if (kind != PosTenderKind.values.last)
+            const SizedBox(width: AppSpacing.xxs),
+        ],
+      ],
+    ),
+  );
+
+  /// What the card machine is doing, and the reference it gave back.
+  Widget _terminalPanel(BuildContext context) {
+    final theme = Theme.of(context);
+    final approved = _approvedPayment?.isApproved ?? false;
+    final reference = _paymentReference.text.trim();
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.base,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: approved ? AppColors.goldWash : AppColors.surface,
+        border: Border.all(
+          color: approved ? AppColors.goldWashBorder : AppColors.border,
+        ),
+        borderRadius: AppRadii.inputBorder,
+      ),
+      child: Row(
+        children: [
+          Icon(
+            approved
+                ? Icons.verified_rounded
+                : (_terminalBusy
+                      ? Icons.hourglass_top_rounded
+                      : Icons.point_of_sale_rounded),
+            size: 15,
+            color: approved ? AppColors.goldDeep : AppColors.inkSoft,
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              approved
+                  ? 'Paid on the machine · $reference'
+                  : (_terminalStatus ??
+                        'Checkout sends the total to the Paytm machine and '
+                            'waits for it to approve.'),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: approved ? AppColors.goldDeep : AppColors.inkSoft,
               ),
             ),
           ),
         ],
-      ],
+      ),
     );
   }
 
@@ -764,35 +883,70 @@ class _PosPageState extends State<PosPage> {
     final matches = _visibleProducts;
     final target = exact ?? (matches.length == 1 ? matches.single : null);
 
-    if (target == null) return;
-    if (target.stock <= 0) {
-      _toast('${target.displayName} is out of stock', ok: false);
+    if (target == null) {
+      _toast('Nothing in the catalogue matches "$code".', ok: false);
       return;
     }
-    _posRepository.addToCart(target);
+    _addToBill(target);
     _productSearch.clear();
     setState(() {});
     _productSearchFocus.requestFocus();
   }
 
+  /// Puts one on the bill, or says why not.
+  ///
+  /// The store refuses once the bill already holds everything on the rail,
+  /// which is what stops a sale driving stock negative. Saying so out loud
+  /// matters: silently ignoring a scan reads as a broken scanner.
+  void _addToBill(ProductRecord product) {
+    if (_posRepository.addToCart(product)) return;
+    _toast(
+      product.stock <= 0
+          ? '${product.displayName} is out of stock.'
+          : 'Only ${AppFormatters.quantity(product.stock)} of '
+                '${product.displayName} left on the rail.',
+      ok: false,
+    );
+  }
+
   void _setQuantity(CartLine line, int quantity) {
-    if (quantity <= 0) {
-      _posRepository.removeFromCart(line);
-      return;
+    final wanted = quantity;
+    _posRepository.setCartQuantity(line, wanted);
+    if (wanted > line.quantity && wanted > 0) {
+      _toast(
+        'Only ${AppFormatters.quantity(line.product.stock)} of '
+        '${line.product.displayName} left on the rail.',
+        ok: false,
+      );
     }
-    setState(() => line.quantity = quantity);
+    setState(() {});
   }
 
   double get _cartTotal => _store.cartGrandTotal(customer: _selectedCustomer);
 
   double get _paidAmount => switch (_paymentMode) {
-    _PaymentMode.cash => _cartTotal,
-    _PaymentMode.card || _PaymentMode.upi => _cartTotal,
-    _PaymentMode.split =>
-      _parse(_splitCash.text) +
-          _parse(_splitCard.text) +
-          _parse(_splitUpi.text),
+    _PaymentMode.cash || _PaymentMode.card || _PaymentMode.upi => _cartTotal,
+    _PaymentMode.split => _parse(_splitCash.text) + _parse(_splitCard.text),
   };
+
+  /// The part of the bill that goes through the card machine, and down which
+  /// rail. Null when the whole bill is cash and the machine is not involved.
+  PosTenderKind? get _tenderKind => switch (_paymentMode) {
+    _PaymentMode.cash => null,
+    _PaymentMode.card => PosTenderKind.card,
+    _PaymentMode.upi => PosTenderKind.upi,
+    _PaymentMode.split => _parse(_splitCard.text) > 0 ? _splitTender : null,
+  };
+
+  double get _terminalAmount => switch (_paymentMode) {
+    _PaymentMode.cash => 0,
+    _PaymentMode.card || _PaymentMode.upi => _cartTotal,
+    _PaymentMode.split => _parse(_splitCard.text),
+  };
+
+  /// Whether this bill needs a transaction reference at all. Cash never does —
+  /// there is no bank in the middle to give one.
+  bool get _needsTerminal => _tenderKind != null;
 
   String get _paymentLabel => switch (_paymentMode) {
     _PaymentMode.cash => 'Paid by cash',
@@ -800,8 +954,8 @@ class _PosPageState extends State<PosPage> {
     _PaymentMode.upi => 'Paid by UPI',
     _PaymentMode.split =>
       'Split: cash ${AppFormatters.currency(_parse(_splitCash.text))}, '
-          'card ${AppFormatters.currency(_parse(_splitCard.text))}, '
-          'UPI ${AppFormatters.currency(_parse(_splitUpi.text))}',
+          '${_splitTender == PosTenderKind.card ? 'card' : 'UPI'} '
+          '${AppFormatters.currency(_parse(_splitCard.text))}',
   };
 
   String get _paymentMethodValue => switch (_paymentMode) {
@@ -820,12 +974,14 @@ class _PosPageState extends State<PosPage> {
   double get _cardAmountForSale => switch (_paymentMode) {
     _PaymentMode.cash || _PaymentMode.upi => 0,
     _PaymentMode.card => _cartTotal,
-    _PaymentMode.split => _parse(_splitCard.text),
+    _PaymentMode.split =>
+      _splitTender == PosTenderKind.card ? _parse(_splitCard.text) : 0,
   };
 
   double get _upiAmountForSale => switch (_paymentMode) {
     _PaymentMode.upi => _cartTotal,
-    _PaymentMode.split => _parse(_splitUpi.text),
+    _PaymentMode.split =>
+      _splitTender == PosTenderKind.upi ? _parse(_splitCard.text) : 0,
     _PaymentMode.cash || _PaymentMode.card => 0,
   };
 
@@ -861,32 +1017,45 @@ class _PosPageState extends State<PosPage> {
     final needsSplit =
         _paymentMode == _PaymentMode.split &&
         _splitCard.text.isEmpty &&
-        _splitCash.text.isEmpty &&
-        _splitUpi.text.isEmpty;
+        _splitCash.text.isEmpty;
     if (!needsSplit) return;
     final formattedTotal = total.toStringAsFixed(2);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (needsSplit &&
+      if (_paymentMode == _PaymentMode.split &&
           _splitCard.text.isEmpty &&
-          _splitCash.text.isEmpty &&
-          _splitUpi.text.isEmpty) {
+          _splitCash.text.isEmpty) {
         _splitCard.text = formattedTotal;
       }
     });
   }
 
+  /// Whether Checkout is live.
+  ///
+  /// Cash needs nothing but a bill: there is no amount to reconcile, because
+  /// what is tendered and what is owed are the same number. Requiring a cash
+  /// figure to match the total is what used to leave the button dead with a
+  /// full trolley on the counter, so it is not asked for at all.
+  ///
+  /// A split has to add up, since its two halves go to two different places.
+  /// Card and UPI need a reference — which the machine supplies, or the
+  /// cashier types when there is no machine.
   bool _canCheckout(double total) {
-    if (_checkingOut || _store.cart.isEmpty) return false;
-    if (_paymentMode == _PaymentMode.split) {
-      return (_paidAmount - total).abs() < 0.01;
+    if (_checkingOut || _terminalBusy || _store.cart.isEmpty) return false;
+    if (_paymentMode == _PaymentMode.split &&
+        (_paidAmount - total).abs() >= 0.01) {
+      return false;
     }
-    return _paidAmount + 0.01 >= total;
+    if (_needsTerminal && !_terminalWillCollect) {
+      return _paymentReference.text.trim().isNotEmpty;
+    }
+    return true;
   }
 
-  double _changeDue(double total) => _paymentMode == _PaymentMode.cash
-      ? (_paidAmount - total).clamp(0, double.infinity).toDouble()
-      : 0;
+  /// True when the machine is set up and will be asked for the money, so the
+  /// reference is its job rather than the cashier's.
+  bool get _terminalWillCollect =>
+      _store.posTerminalSettings.isConfigured && _terminalService.isSupported;
 
   double _parse(String value) => double.tryParse(value.trim()) ?? 0;
 
@@ -901,9 +1070,10 @@ class _PosPageState extends State<PosPage> {
     _customerPhone.clear();
     _splitCash.clear();
     _splitCard.clear();
-    _splitUpi.clear();
     _paymentReference.clear();
     _billDiscount.clear();
+    _approvedPayment = null;
+    _terminalStatus = null;
   }
 
   Future<CustomerRecord?> _customerForManualEntry() async {
@@ -966,39 +1136,111 @@ class _PosPageState extends State<PosPage> {
         customerAddress: _selectedCustomer?.address,
       );
 
+  /// Scan, checkout, charge, print — the whole counter transaction.
+  ///
+  /// The order matters and is not arbitrary. The money is taken *before* the
+  /// sale is written, because a bill that exists for a payment that was
+  /// declined is a bill the shop has to unpick by hand. Once the machine has
+  /// approved, the sale is committed and the bill prints itself: nobody has to
+  /// pick a printer, and nobody has to copy a transaction number off a slip.
   Future<void> _checkout(BuildContext context) async {
     if (_checkingOut) return;
     setState(() => _checkingOut = true);
     try {
       final receiptLines = List<CartLine>.from(_store.cart);
-      final customer = await _customerForManualEntry();
-      final paid = _paidAmount;
+      final total = _cartTotal;
       final paymentMethod = _paymentMethodValue;
-      final cashAmount = _cashAmountForSale;
-      final cardAmount = _cardAmountForSale;
-      final upiAmount = _upiAmountForSale;
-      final paymentReference = paymentMethod == 'cash'
-          ? ''
-          : _paymentReference.text.trim();
+
+      // ------------------------------------------------------ take the money
+      final reference = await _collectPayment(total);
+      if (reference == null) return; // Refused, cancelled, or unreachable.
+
+      // ------------------------------------------------------ write the sale
+      final customer = await _customerForManualEntry();
       final sale = await _posRepository.checkout(
         customer: customer,
-        paid: paid,
+        paid: _paidAmount,
         paymentMethod: paymentMethod,
-        cashAmount: cashAmount,
-        cardAmount: cardAmount,
-        upiAmount: upiAmount,
-        paymentReference: paymentReference,
+        cashAmount: _cashAmountForSale,
+        cardAmount: _cardAmountForSale,
+        upiAmount: _upiAmountForSale,
+        paymentReference: reference,
+        paymentTerminal: _approvedPayment?.terminalId ?? '',
       );
-      final invoice = _invoiceFor(sale, receiptLines, paid);
+      final invoice = _invoiceFor(sale, receiptLines, sale.total);
       _resetPaymentInputs();
       if (!context.mounted) return;
       _lastInvoice = invoice;
+
+      // ----------------------------------------------------- print the bill
       final note = await _deliverReceipt(invoice);
+      unawaited(_refreshNextBillNumber());
       if (!context.mounted) return;
-      _toast('${sale.receipt} done. $note');
+      _toast('Bill ${sale.receipt} done. $note');
       _productSearchFocus.requestFocus();
+    } on StateError catch (e) {
+      if (mounted) _toast(e.message, ok: false);
     } finally {
       if (mounted) setState(() => _checkingOut = false);
+    }
+  }
+
+  /// Gets the payment settled and returns the reference to print on the bill.
+  ///
+  /// Returns an empty string for cash — there is nothing to quote — and null
+  /// when the sale must not go ahead, having already told the cashier why.
+  Future<String?> _collectPayment(double total) async {
+    final tender = _tenderKind;
+    if (tender == null) return '';
+
+    // Already approved on this bill: a failed print or a slip of the mouse
+    // must never put the customer's card through twice.
+    final approved = _approvedPayment;
+    if (approved != null && approved.isApproved) return approved.reference;
+
+    if (!_terminalWillCollect) {
+      final typed = _paymentReference.text.trim();
+      if (typed.isEmpty) {
+        _toast(
+          'Type the reference from the card machine, or connect it under '
+          'Hardware.',
+          ok: false,
+        );
+        return null;
+      }
+      return typed;
+    }
+
+    setState(() {
+      _terminalBusy = true;
+      _terminalStatus = tender == PosTenderKind.upi
+          ? 'Showing the QR on the machine — waiting for the customer to '
+                'scan…'
+          : 'Sent to the machine — waiting for the card…';
+    });
+    try {
+      final result = await _terminalService.collect(
+        settings: _store.posTerminalSettings,
+        amount: _terminalAmount,
+        // The next bill number, quoted to the machine so its own slip and the
+        // shop's bill refer to the same order.
+        reference: await _store.peekNextInvoiceNumber(),
+        tender: tender,
+      );
+      if (!mounted) return null;
+      if (!result.isApproved) {
+        setState(() => _terminalStatus = result.message);
+        _toast(result.message, ok: false);
+        return null;
+      }
+      setState(() {
+        _approvedPayment = result;
+        _paymentReference.text = result.reference;
+        _terminalStatus = result.message;
+      });
+      return result.reference;
+    } finally {
+      if (mounted) setState(() => _terminalBusy = false);
     }
   }
 
@@ -1080,8 +1322,8 @@ class _PosPageState extends State<PosPage> {
       InvoicePaper.a4 => _store.printerSettings.copyWith(
         mode: ReceiptPrintMode.dialog,
       ),
-      InvoicePaper.roll58 => _store.printerSettings.copyWith(
-        paper: ThermalPaper.mm58,
+      InvoicePaper.roll57 => _store.printerSettings.copyWith(
+        paper: ThermalPaper.mm57,
       ),
       InvoicePaper.roll80 => _store.printerSettings.copyWith(
         paper: ThermalPaper.mm80,
@@ -1492,6 +1734,62 @@ class _ModeButton extends StatelessWidget {
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                   color: selected ? AppColors.brandInk : AppColors.inkSoft,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// Card or UPI QR, for the machine half of a split bill.
+class _TenderButton extends StatelessWidget {
+  const _TenderButton({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: selected ? AppColors.goldWash : AppColors.surface,
+    borderRadius: AppRadii.inputBorder,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: AppRadii.inputBorder,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: AppRadii.inputBorder,
+          border: Border.all(
+            color: selected ? AppColors.goldWashBorder : AppColors.border,
+          ),
+        ),
+        alignment: Alignment.center,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 12,
+              color: selected ? AppColors.goldDeep : AppColors.inkSoft,
+            ),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: selected ? AppColors.goldDeep : AppColors.inkSoft,
                 ),
               ),
             ),

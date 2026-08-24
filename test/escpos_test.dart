@@ -77,11 +77,11 @@ void main() {
 
   group('layout', () {
     test('a label and an amount are padded to exactly the roll width', () {
-      final bytes = EscPosBuilder(paper: ThermalPaper.mm58)
+      final bytes = EscPosBuilder(paper: ThermalPaper.mm57)
         ..columns2('TOTAL', '1,798.00');
       final text = printableText(bytes.bytes()).trim();
 
-      expect(text.length, 32, reason: '58 mm rolls hold 32 characters');
+      expect(text.length, 32, reason: '57 mm rolls hold 32 characters');
       expect(text.startsWith('TOTAL'), isTrue);
       expect(text.endsWith('1,798.00'), isTrue);
     });
@@ -95,7 +95,7 @@ void main() {
 
     test('a long label gives way to the amount, never the other way round', () {
       final builder = EscPosBuilder(
-        paper: ThermalPaper.mm58,
+        paper: ThermalPaper.mm57,
       )..columns2('An extremely long description of the item sold', '1,798.00');
       final text = printableText(builder.bytes()).trim();
 

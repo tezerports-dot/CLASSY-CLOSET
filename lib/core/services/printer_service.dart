@@ -39,6 +39,8 @@ class PrinterSettings {
     this.printUpiQr = false,
     this.upiVpa = '',
     this.upiPayeeName = '',
+    this.labelPrinterName,
+    this.sendLabelsToLabelPrinter = false,
   });
 
   final ReceiptPrintMode mode;
@@ -67,7 +69,24 @@ class PrinterSettings {
   final String upiVpa;
   final String upiPayeeName;
 
+  /// The second printer: the one with the barcode label stock in it.
+  ///
+  /// A shop that prints price tags has two printers on the counter, and which
+  /// one Windows happens to call the default is not something the assistant
+  /// should have to think about while a delivery is being tagged. Naming it
+  /// here means labels go to the labels and bills go to the roll.
+  final String? labelPrinterName;
+
+  /// Send label sheets straight to [labelPrinterName] instead of opening the
+  /// Windows print dialog every time.
+  final bool sendLabelsToLabelPrinter;
+
   bool get isThermal => mode == ReceiptPrintMode.thermal;
+
+  /// Whether labels have somewhere of their own to go.
+  bool get hasLabelPrinter =>
+      sendLabelsToLabelPrinter &&
+      (labelPrinterName?.trim().isNotEmpty ?? false);
 
   /// A UPI QR is only worth printing once there is a VPA to put in it.
   bool get canPrintUpiQr => printUpiQr && upiVpa.trim().contains('@');
@@ -86,6 +105,9 @@ class PrinterSettings {
     bool? printUpiQr,
     String? upiVpa,
     String? upiPayeeName,
+    String? labelPrinterName,
+    bool clearLabelPrinterName = false,
+    bool? sendLabelsToLabelPrinter,
   }) => PrinterSettings(
     mode: mode ?? this.mode,
     printerName: clearPrinterName ? null : (printerName ?? this.printerName),
@@ -99,6 +121,11 @@ class PrinterSettings {
     printUpiQr: printUpiQr ?? this.printUpiQr,
     upiVpa: upiVpa ?? this.upiVpa,
     upiPayeeName: upiPayeeName ?? this.upiPayeeName,
+    labelPrinterName: clearLabelPrinterName
+        ? null
+        : (labelPrinterName ?? this.labelPrinterName),
+    sendLabelsToLabelPrinter:
+        sendLabelsToLabelPrinter ?? this.sendLabelsToLabelPrinter,
   );
 
   Map<String, dynamic> toJson() => {
@@ -114,6 +141,8 @@ class PrinterSettings {
     'printUpiQr': printUpiQr,
     'upiVpa': upiVpa,
     'upiPayeeName': upiPayeeName,
+    'labelPrinterName': labelPrinterName,
+    'sendLabelsToLabelPrinter': sendLabelsToLabelPrinter,
   };
 
   factory PrinterSettings.fromJson(Map<String, dynamic> json) =>
@@ -135,6 +164,12 @@ class PrinterSettings {
         printUpiQr: json['printUpiQr'] as bool? ?? false,
         upiVpa: (json['upiVpa'] as String? ?? '').trim(),
         upiPayeeName: (json['upiPayeeName'] as String? ?? '').trim(),
+        labelPrinterName:
+            (json['labelPrinterName'] as String?)?.trim().isEmpty ?? true
+            ? null
+            : (json['labelPrinterName'] as String).trim(),
+        sendLabelsToLabelPrinter:
+            json['sendLabelsToLabelPrinter'] as bool? ?? false,
       );
 
   String encode() => jsonEncode(toJson());
@@ -157,6 +192,15 @@ abstract class RawPrinterTransport {
   Future<List<String>> listPrinters();
 
   Future<bool> sendRaw({String? printerName, required Uint8List data});
+
+  /// Spools a rendered PDF to a named printer without a dialog. This is the
+  /// route barcode labels take, so the label roll is never one wrong click
+  /// away from coming out of the A4 printer.
+  Future<bool> sendPdf({
+    String? printerName,
+    required Uint8List data,
+    int copies = 1,
+  });
 }
 
 /// The Windows spooler, reached through the `windows_printer` plugin's
@@ -188,6 +232,20 @@ class WindowsRawPrinterTransport implements RawPrinterTransport {
       useRawDatatype: true,
     );
   }
+
+  @override
+  Future<bool> sendPdf({
+    String? printerName,
+    required Uint8List data,
+    int copies = 1,
+  }) async {
+    if (!isSupported) return false;
+    return WindowsPrinter.printPdf(
+      printerName: printerName,
+      data: data,
+      copies: copies.clamp(1, 20),
+    );
+  }
 }
 
 /// A transport for the platforms that have no raw path. Reports itself
@@ -204,6 +262,13 @@ class UnsupportedRawPrinterTransport implements RawPrinterTransport {
   @override
   Future<bool> sendRaw({String? printerName, required Uint8List data}) async =>
       false;
+
+  @override
+  Future<bool> sendPdf({
+    String? printerName,
+    required Uint8List data,
+    int copies = 1,
+  }) async => false;
 }
 
 /// Sends prepared ESC/POS jobs, and answers what hardware is available.
@@ -232,6 +297,28 @@ class PrinterService {
       if (!ok) return false;
     }
     return true;
+  }
+
+  /// Spools a rendered PDF straight to [printerName].
+  ///
+  /// Used for barcode labels, which are a PDF rather than ESC/POS because they
+  /// are laid out on a sheet. Returns false rather than throwing when there is
+  /// no raw path, so the caller can fall back to the print dialog.
+  Future<bool> sendPdfTo(
+    Uint8List pdf, {
+    String? printerName,
+    int copies = 1,
+  }) async {
+    if (!supportsDirectPrinting) return false;
+    try {
+      return await transport.sendPdf(
+        printerName: printerName,
+        data: pdf,
+        copies: copies,
+      );
+    } on Object {
+      return false;
+    }
   }
 
   /// Kicks the drawer without printing anything — the "no sale" button behind

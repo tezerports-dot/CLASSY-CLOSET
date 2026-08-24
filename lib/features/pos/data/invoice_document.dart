@@ -12,9 +12,9 @@ import '../../../core/utils/formatters.dart';
 ///
 /// The two roll widths are the standard thermal receipt sizes; A4 is for a
 /// desk printer. Picking one changes the layout, not just the page size — a
-/// 58 mm roll cannot carry the same columns as an A4 sheet.
+/// 57 mm roll cannot carry the same columns as an A4 sheet.
 enum InvoicePaper {
-  roll58(PdfPageFormat.roll57, 'Thermal 57 mm'),
+  roll57(PdfPageFormat.roll57, 'Thermal 57 mm'),
   roll80(PdfPageFormat.roll80, 'Thermal 80 mm'),
   a4(PdfPageFormat.a4, 'A4 sheet');
 
@@ -87,6 +87,15 @@ class InvoiceData {
 }
 
 /// Builds the invoice PDF for the chosen paper size.
+///
+/// The two layouts take different page widgets on purpose. A roll has no page
+/// height — `PdfPageFormat.roll57` and `roll80` are both infinitely tall, since
+/// the paper is a continuous strip — and `MultiPage` cannot lay out against an
+/// infinite height: it asserts on it in debug and produces an empty page in
+/// release, which is exactly the blank white sheet a printed or saved bill was
+/// coming out as. `Page` handles it, shrinking the page to the height the bill
+/// actually needed. A4 keeps `MultiPage`, because a long bill there genuinely
+/// has to break across sheets.
 Future<Uint8List> buildInvoicePdf({
   required InvoiceData data,
   required InvoicePaper paper,
@@ -94,16 +103,27 @@ Future<Uint8List> buildInvoicePdf({
   final document = pw.Document();
   final logo = await _loadLogo(data.profile?.logoPath);
 
-  document.addPage(
-    pw.MultiPage(
-      pageFormat: paper.format,
-      margin: paper.isRoll
-          ? const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 8)
-          : const pw.EdgeInsets.all(28),
-      build: (context) =>
-          paper.isRoll ? _rollBody(data, logo, paper) : _sheetBody(data, logo),
-    ),
-  );
+  if (paper.isRoll) {
+    document.addPage(
+      pw.Page(
+        pageFormat: paper.format,
+        margin: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        build: (context) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+          mainAxisSize: pw.MainAxisSize.min,
+          children: _rollBody(data, logo, paper),
+        ),
+      ),
+    );
+  } else {
+    document.addPage(
+      pw.MultiPage(
+        pageFormat: paper.format,
+        margin: const pw.EdgeInsets.all(28),
+        build: (context) => _sheetBody(data, logo),
+      ),
+    );
+  }
   return document.save();
 }
 
@@ -125,7 +145,7 @@ List<pw.Widget> _rollBody(
 ) {
   final profile = data.profile;
   final sale = data.sale;
-  final narrow = paper == InvoicePaper.roll58;
+  final narrow = paper == InvoicePaper.roll57;
   final base = narrow ? 7.0 : 8.0;
 
   return [

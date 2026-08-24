@@ -44,10 +44,8 @@ class _CustomersPageState extends State<CustomersPage> {
         final all = _store.customers;
         final rows = all
             .where(
-              (c) => AppSearch.matches(
-                '${c.name} ${c.phone} ${c.email}',
-                query,
-              ),
+              (c) =>
+                  AppSearch.matches('${c.name} ${c.phone} ${c.email}', query),
             )
             .where((c) => !_owingOnly || c.balance > 0)
             .toList();
@@ -56,6 +54,10 @@ class _CustomersPageState extends State<CustomersPage> {
           (sum, c) => sum + (c.balance > 0 ? c.balance : 0),
         );
         final owingCount = all.where((c) => c.balance > 0).length;
+        // Everything every customer has ever spent here. Counted off the bills
+        // each time rather than stored, so it always agrees with the sales.
+        final lifetime = all.fold(0.0, (sum, c) => sum + c.lifetimeSpend);
+        final buyers = all.where((c) => c.lifetimeBills > 0).length;
 
         return SingleChildScrollView(
           padding: const EdgeInsets.all(AppSpacing.xxl),
@@ -77,22 +79,36 @@ class _CustomersPageState extends State<CustomersPage> {
                 ],
               ),
 
-              if (owed > 0) ...[
+              if (lifetime > 0 || owed > 0) ...[
                 Row(
                   children: [
-                    Expanded(
-                      child: KpiCard(
-                        label: 'Owed to the shop',
-                        value: AppFormatters.currency(owed),
-                        caption:
-                            'Across $owingCount account'
-                            '${owingCount == 1 ? '' : 's'}',
-                        icon: Icons.account_balance_wallet_outlined,
-                        tone: AppColors.danger,
+                    if (lifetime > 0)
+                      Expanded(
+                        child: KpiCard(
+                          label: 'Bought here, all time',
+                          value: AppFormatters.currency(lifetime),
+                          caption:
+                              'Across $buyers named customer'
+                              '${buyers == 1 ? '' : 's'}',
+                          icon: Icons.shopping_bag_outlined,
+                        ),
                       ),
-                    ),
+                    if (lifetime > 0 && owed > 0)
+                      const SizedBox(width: AppSpacing.xl),
+                    if (owed > 0)
+                      Expanded(
+                        child: KpiCard(
+                          label: 'Owed to the shop',
+                          value: AppFormatters.currency(owed),
+                          caption:
+                              'Across $owingCount account'
+                              '${owingCount == 1 ? '' : 's'}',
+                          icon: Icons.account_balance_wallet_outlined,
+                          tone: AppColors.danger,
+                        ),
+                      ),
                     const SizedBox(width: AppSpacing.xl),
-                    const Spacer(flex: 2),
+                    const Spacer(),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.xl),
@@ -125,12 +141,17 @@ class _CustomersPageState extends State<CustomersPage> {
                   ),
                 ],
                 child: AppTable(
-                  minWidth: 900,
+                  minWidth: 1080,
                   columns: const [
                     DataColumn(label: Text('NAME')),
                     DataColumn(label: Text('PHONE')),
-                    DataColumn(label: Text('EMAIL')),
-                    DataColumn(label: Text('CREDIT LIMIT'), numeric: true),
+                    // What this customer is worth to the shop, which is the
+                    // question a shopkeeper actually asks about a regular —
+                    // and the reason the till now records a name and a number
+                    // against a bill at all.
+                    DataColumn(label: Text('BILLS'), numeric: true),
+                    DataColumn(label: Text('BOUGHT, ALL TIME'), numeric: true),
+                    DataColumn(label: Text('LAST IN')),
                     DataColumn(label: Text('OUTSTANDING'), numeric: true),
                     DataColumn(label: Text('')),
                   ],
@@ -155,11 +176,31 @@ class _CustomersPageState extends State<CustomersPage> {
                                 ? const Text('—')
                                 : CodeText(c.phone, size: 12),
                           ),
-                          DataCell(Text(c.email.isEmpty ? '—' : c.email)),
                           DataCell(
-                            c.creditLimit <= 0
+                            Text(
+                              c.lifetimeBills == 0 ? '—' : '${c.lifetimeBills}',
+                            ),
+                          ),
+                          DataCell(
+                            c.lifetimeSpend <= 0
                                 ? const Text('—')
-                                : MoneyText(c.creditLimit, size: 13),
+                                : Tooltip(
+                                    message:
+                                        'Average bill '
+                                        '${AppFormatters.currency(c.averageBill)}',
+                                    child: MoneyText(
+                                      c.lifetimeSpend,
+                                      size: 13,
+                                      weight: FontWeight.w600,
+                                    ),
+                                  ),
+                          ),
+                          DataCell(
+                            Text(
+                              c.lastPurchaseAt == null
+                                  ? '—'
+                                  : AppFormatters.date(c.lastPurchaseAt!),
+                            ),
                           ),
                           DataCell(
                             c.balance == 0

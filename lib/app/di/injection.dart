@@ -2,6 +2,7 @@ import 'package:get_it/get_it.dart';
 
 import '../../core/database/app_database.dart';
 import '../../core/services/backup_service.dart';
+import '../../core/services/pos_terminal.dart';
 import '../../core/services/printer_service.dart';
 import '../../core/services/retail_store.dart';
 import '../../features/auth/data/repositories/auth_repository.dart';
@@ -28,6 +29,9 @@ Future<void> configureDependencies() async {
   }
   if (!getIt.isRegistered<PrinterService>()) {
     getIt.registerLazySingleton<PrinterService>(PrinterService.new);
+  }
+  if (!getIt.isRegistered<PosTerminalService>()) {
+    getIt.registerLazySingleton<PosTerminalService>(PosTerminalService.new);
   }
   if (!getIt.isRegistered<AuthRepository>()) {
     getIt.registerLazySingleton<AuthRepository>(

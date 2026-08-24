@@ -25,6 +25,14 @@ class _UserFormDialogState extends State<UserFormDialog> {
   bool _saving = false;
   String? _error;
 
+  /// What is ticked right now. Seeded from the role for a new account and
+  /// from whatever the account actually has for an existing one.
+  late Set<Permission> _granted;
+
+  /// True once the owner has departed from the role's own set, at which point
+  /// the account is pinned to the ticks rather than following its role.
+  late bool _custom;
+
   bool get _isNew => widget.user == null;
 
   @override
@@ -34,6 +42,8 @@ class _UserFormDialogState extends State<UserFormDialog> {
     _username = TextEditingController(text: widget.user?.username ?? '');
     _role = widget.user?.role ?? AppRole.cashier;
     _isActive = widget.user?.isActive ?? true;
+    _custom = widget.user?.hasCustomPermissions ?? false;
+    _granted = {...(widget.user?.permissions ?? permissionsFor(_role))};
   }
 
   @override
@@ -101,7 +111,12 @@ class _UserFormDialogState extends State<UserFormDialog> {
                 DropdownButtonFormField<AppRole>(
                   initialValue: _role,
                   isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Role'),
+                  decoration: InputDecoration(
+                    labelText: 'Role',
+                    helperText: _custom
+                        ? 'A label only — this account uses the ticks below.'
+                        : 'Sets the starting point for the ticks below.',
+                  ),
                   items: [
                     for (final role in AppRole.values)
                       DropdownMenuItem(
@@ -109,25 +124,65 @@ class _UserFormDialogState extends State<UserFormDialog> {
                         child: Text('${role.label} — ${role.description}'),
                       ),
                   ],
-                  onChanged: (value) => setState(() => _role = value ?? _role),
+                  onChanged: (value) => setState(() {
+                    _role = value ?? _role;
+                    // Changing the role re-seeds the ticks unless the owner
+                    // has already set them by hand, which they would not
+                    // thank us for throwing away.
+                    if (!_custom) _granted = {...permissionsFor(_role)};
+                  }),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'What they can do',
+                        style: theme.textTheme.labelLarge,
+                      ),
+                    ),
+                    if (_custom)
+                      TextButton(
+                        onPressed: () => setState(() {
+                          _custom = false;
+                          _granted = {...permissionsFor(_role)};
+                        }),
+                        child: Text('Reset to ${_role.label}'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  // Every permission is listed, ticked or not, so the owner
+                  // can see the whole of what the app can do and grant any of
+                  // it — rather than having to work out which role happens to
+                  // carry the one thing this assistant needs.
+                  _custom
+                      ? 'Set for this person. The role above is just a label '
+                            'now.'
+                      : 'Everything the ${_role.label} role gives. Tick or '
+                            'untick any of it for this person.',
+                  style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  'All permissions',
-                  style: theme.textTheme.labelLarge,
-                ),
-                const SizedBox(height: 6),
-                // Show every grant first; selected chips are included in the
-                // chosen role and unselected chips show what can be granted by
-                // moving the staff member to a stronger role.
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
                   children: [
                     for (final permission in Permission.values)
                       FilterChip(
-                        selected: permissionsFor(_role).contains(permission),
-                        onSelected: null,
+                        selected: _granted.contains(permission),
+                        onSelected: (on) => setState(() {
+                          if (on) {
+                            _granted.add(permission);
+                          } else {
+                            _granted.remove(permission);
+                          }
+                          _custom = !_setEquals(
+                            _granted,
+                            permissionsFor(_role),
+                          );
+                        }),
                         label: Text(_short(permission)),
                         visualDensity: VisualDensity.compact,
                         padding: EdgeInsets.zero,
@@ -198,8 +253,35 @@ class _UserFormDialogState extends State<UserFormDialog> {
       });
       return;
     }
+
+    // The account has to exist before its permissions can hang off it, so the
+    // ticks are written second — by id, looked back up for a new account.
+    final id =
+        widget.user?.id ??
+        widget.store.users
+            .where((u) => u.username == _username.text.trim().toLowerCase())
+            .firstOrNull
+            ?.id;
+    if (id != null) {
+      final permissionProblem = await widget.store.saveUserPermissions(
+        id,
+        _custom ? _granted : null,
+      );
+      if (!mounted) return;
+      if (permissionProblem != null) {
+        setState(() {
+          _saving = false;
+          _error = permissionProblem;
+        });
+        return;
+      }
+    }
+    if (!mounted) return;
     Navigator.of(context).pop();
   }
+
+  bool _setEquals(Set<Permission> a, Set<Permission> b) =>
+      a.length == b.length && a.containsAll(b);
 }
 
 String _short(Permission permission) => switch (permission) {
@@ -222,5 +304,5 @@ String _short(Permission permission) => switch (permission) {
   Permission.recordPurchases => 'Purchases',
   Permission.recordExpenses => 'Expenses',
   Permission.recordPayments => 'Payments',
-  Permission.adjustStock => 'Stock counts',
+  Permission.adjustStock => 'Adjust stock',
 };

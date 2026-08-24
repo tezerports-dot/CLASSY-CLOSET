@@ -30,9 +30,9 @@ void main() {
         );
       });
 
-      final logo = prepareReceiptLogo(source, paper: ThermalPaper.mm58)!;
+      final logo = prepareReceiptLogo(source, paper: ThermalPaper.mm57)!;
 
-      // 58 mm is 384 dots. 60% of that would be 232 dots square, but a square
+      // 57 mm is 384 dots. 60% of that would be 232 dots square, but a square
       // logo hits the 200-dot height cap first and the width follows it down —
       // a quarter of the roll's length is already a lot to give a logo.
       expect(logo.widthDots, 384, reason: 'rows are always the full roll');
@@ -99,8 +99,8 @@ void main() {
         );
       });
 
-      final darkLogo = prepareReceiptLogo(dark, paper: ThermalPaper.mm58)!;
-      final paleLogo = prepareReceiptLogo(pale, paper: ThermalPaper.mm58)!;
+      final darkLogo = prepareReceiptLogo(dark, paper: ThermalPaper.mm57)!;
+      final paleLogo = prepareReceiptLogo(pale, paper: ThermalPaper.mm57)!;
 
       expect(darkLogo.rows.first.any((b) => b != 0), isTrue);
       expect(paleLogo.rows.first.every((b) => b == 0), isTrue);
@@ -112,7 +112,7 @@ void main() {
       final source = img.Image(width: 32, height: 16, numChannels: 4);
       img.fill(source, color: img.ColorRgba8(0, 0, 0, 0));
 
-      final logo = prepareReceiptLogo(source, paper: ThermalPaper.mm58)!;
+      final logo = prepareReceiptLogo(source, paper: ThermalPaper.mm57)!;
 
       expect(
         logo.rows.every((row) => row.every((b) => b == 0)),
@@ -162,7 +162,7 @@ void main() {
         expect(
           prepareReceiptLogo(
             img.Image(width: 0, height: 0),
-            paper: ThermalPaper.mm58,
+            paper: ThermalPaper.mm57,
           ),
           isNull,
         );
@@ -181,7 +181,7 @@ void main() {
 
   group('the raster command', () {
     test('carries the width in bytes and the height in dots', () {
-      final builder = EscPosBuilder(paper: ThermalPaper.mm58)
+      final builder = EscPosBuilder(paper: ThermalPaper.mm57)
         ..rasterImage([
           [0xFF, 0x00, 0xAA],
           [0x00, 0xFF, 0x55],

@@ -29,9 +29,8 @@ class _WhiteLabelPosAppState extends State<WhiteLabelPosApp> {
     return AnimatedBuilder(
       animation: _store,
       builder: (context, _) => MaterialApp.router(
-        builder: (context, child) => SelectionArea(
-          child: child ?? const SizedBox(),
-        ),
+        builder: (context, child) =>
+            SelectionArea(child: child ?? const SizedBox()),
         title: '${_store.displayStoreName} POS',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light(),

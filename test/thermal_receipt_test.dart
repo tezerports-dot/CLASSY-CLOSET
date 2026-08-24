@@ -22,6 +22,12 @@ class RecordingTransport implements RawPrinterTransport {
   final jobs = <Uint8List>[];
   final printerNames = <String?>[];
 
+  /// PDFs land in their own list: a label sheet and a receipt take different
+  /// routes to paper, and a test that could not tell them apart would not
+  /// notice labels being spooled to the bill printer.
+  final pdfJobs = <Uint8List>[];
+  final pdfPrinterNames = <String?>[];
+
   @override
   bool get isSupported => true;
 
@@ -32,6 +38,19 @@ class RecordingTransport implements RawPrinterTransport {
   Future<bool> sendRaw({String? printerName, required Uint8List data}) async {
     jobs.add(data);
     printerNames.add(printerName);
+    return succeeds;
+  }
+
+  @override
+  Future<bool> sendPdf({
+    String? printerName,
+    required Uint8List data,
+    int copies = 1,
+  }) async {
+    for (var i = 0; i < copies; i++) {
+      pdfJobs.add(data);
+      pdfPrinterNames.add(printerName);
+    }
     return succeeds;
   }
 }
@@ -242,7 +261,7 @@ void main() {
 
       final job = buildThermalReceipt(
         data: invoice,
-        settings: const PrinterSettings(paper: ThermalPaper.mm58),
+        settings: const PrinterSettings(paper: ThermalPaper.mm57),
         logo: logo,
       );
 
@@ -264,7 +283,7 @@ void main() {
       final job = buildThermalReceipt(
         data: invoice,
         settings: const PrinterSettings(
-          paper: ThermalPaper.mm58,
+          paper: ThermalPaper.mm57,
           printLogoOnReceipt: false,
         ),
         logo: logo,
@@ -394,7 +413,7 @@ void main() {
       const settings = PrinterSettings(
         mode: ReceiptPrintMode.thermal,
         printerName: 'EPSON TM-T82',
-        paper: ThermalPaper.mm58,
+        paper: ThermalPaper.mm57,
         copies: 2,
         cutAfterPrint: false,
         openDrawerOnCashSale: true,
@@ -411,7 +430,7 @@ void main() {
 
       expect(loaded.mode, ReceiptPrintMode.thermal);
       expect(loaded.printerName, 'EPSON TM-T82');
-      expect(loaded.paper, ThermalPaper.mm58);
+      expect(loaded.paper, ThermalPaper.mm57);
       expect(loaded.copies, 2);
       expect(loaded.cutAfterPrint, isFalse);
       expect(loaded.openDrawerOnCashSale, isTrue);

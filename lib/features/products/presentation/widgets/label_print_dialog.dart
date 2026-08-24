@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
+import '../../../../app/di/injection.dart';
+import '../../../../core/services/printer_service.dart';
 import '../../../../core/services/retail_store.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../data/label_document.dart';
@@ -25,6 +27,17 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
   LabelOptions _options = const LabelOptions();
   final _copies = <int, TextEditingController>{};
   bool _printing = false;
+  late final PrinterService _printerService = getIt<PrinterService>();
+
+  /// The label printer, when the shop has named one under Hardware.
+  ///
+  /// A counter with two printers — the roll for bills, the label stock for
+  /// price tags — should not need the assistant to pick the right one out of
+  /// a Windows dialog while a delivery is being tagged. Naming it once sends
+  /// every label sheet straight there.
+  PrinterSettings get _printer => widget.store.printerSettings;
+  bool get _direct =>
+      _printer.hasLabelPrinter && _printerService.supportsDirectPrinting;
 
   @override
   void initState() {
@@ -202,6 +215,27 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
                           '${_sheet.isRoll ? '$_sheetsNeeded on the roll' : '$_sheetsNeeded sheet(s)'}',
                 style: theme.textTheme.bodySmall,
               ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(
+                    _direct ? Icons.local_offer_rounded : Icons.print_outlined,
+                    size: 14,
+                    color: theme.textTheme.bodySmall?.color,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _direct
+                          ? 'Goes straight to ${_printer.labelPrinterName} — '
+                                'no dialog.'
+                          : 'Opens the Windows print dialog. Name a label '
+                                'printer under Hardware to skip it.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -255,15 +289,48 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
   Future<void> _print() async {
     setState(() => _printing = true);
     try {
+      final pdf = await buildLabelSheet(
+        requests: _requests(),
+        sheet: _sheet,
+        profile: widget.store.storeProfile,
+        options: _options,
+      );
+
+      // Straight to the label printer when there is one. A printer that is
+      // off or renamed falls through to the dialog rather than losing the job
+      // — the labels still have to get printed somehow.
+      if (_direct) {
+        final sent = await _printerService.sendPdfTo(
+          pdf,
+          printerName: _printer.labelPrinterName,
+        );
+        if (sent) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '$_totalLabels label(s) sent to '
+                '${_printer.labelPrinterName}.',
+              ),
+            ),
+          );
+          return;
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${_printer.labelPrinterName} did not answer, so the print '
+              'dialog opened instead.',
+            ),
+          ),
+        );
+      }
+
       await Printing.layoutPdf(
         name: 'labels-${widget.style.styleCode}',
         format: _sheet.pageFormat,
-        onLayout: (_) => buildLabelSheet(
-          requests: _requests(),
-          sheet: _sheet,
-          profile: widget.store.storeProfile,
-          options: _options,
-        ),
+        onLayout: (_) async => pdf,
       );
     } finally {
       if (mounted) setState(() => _printing = false);

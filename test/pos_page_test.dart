@@ -1,5 +1,6 @@
 import 'package:classy_closet/app/di/injection.dart';
 import 'package:classy_closet/core/database/app_database.dart';
+import 'package:classy_closet/core/services/pos_terminal.dart';
 import 'package:classy_closet/core/services/printer_service.dart';
 import 'package:classy_closet/core/services/retail_store.dart';
 import 'package:classy_closet/features/pos/data/repositories/pos_repository.dart';
@@ -24,6 +25,9 @@ void main() {
     getIt.registerSingleton<PrinterService>(
       PrinterService(transport: const UnsupportedRawPrinterTransport()),
     );
+    getIt.registerSingleton<PosTerminalService>(
+      PosTerminalService(transport: const UnsupportedPosTerminalTransport()),
+    );
 
     await store.initialize();
     await store.login('admin', 'admin123');
@@ -35,7 +39,7 @@ void main() {
         category: 'Apparel',
         brand: 'Generic',
         unit: 'pcs',
-        stock: 10,
+        stock: 3,
         minimumStock: 2,
         purchasePrice: 6,
         sellingPrice: 10,
@@ -59,47 +63,134 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('defaults the customer to Walk-in Customer', (tester) async {
-    await pumpPos(tester);
-
-    expect(find.text('Walk-in Customer'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets(
-    'adding to the cart auto-fills the cash tendered without a setState-during-build crash',
-    (tester) async {
-      await pumpPos(tester);
-
-      await tester.tap(find.text('Cotton Shirt'));
-      await tester.pumpAndSettle();
-
-      // The auto-fill runs from build(), and the controller it writes to has a
-      // listener that calls setState, so it has to be deferred past the frame.
-      expect(tester.takeException(), isNull);
-
-      final cashField = tester.widget<TextField>(
-        find.byWidgetPredicate(
-          (w) => w is TextField && w.decoration?.labelText == 'Cash tendered',
-        ),
-      );
-      expect(cashField.controller?.text, '10.00');
-      expect(store.cart.single.quantity, 1);
-    },
+  /// Finds a control by the label it is wearing, which is how a cashier finds
+  /// it too.
+  Finder fieldLabelled(String label) => find.byWidgetPredicate(
+    (w) => w is TextField && w.decoration?.labelText == label,
   );
 
-  testWidgets('survives a store refresh that replaces the customer records', (
+  testWidgets('takes a name and a number rather than picking a customer', (
     tester,
   ) async {
     await pumpPos(tester);
 
-    // refresh() rebuilds `customers` with new instances. If the page kept holding
-    // the previous instance, the dropdown value would no longer match any of its
-    // items and DropdownButtonFormField's assertion would fire.
+    // A customer buys once, at the counter, and is usually a stranger. The old
+    // dropdown made every bill pick from a list of everyone who had ever
+    // shopped here, which is the wrong shape for the job.
+    expect(fieldLabelled('Customer name (optional)'), findsOneWidget);
+    expect(fieldLabelled('Mobile number (optional)'), findsOneWidget);
+    expect(find.byType(DropdownButtonFormField<CustomerRecord>), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a cash bill asks for nothing but the garments', (tester) async {
+    await pumpPos(tester);
+
+    await tester.tap(find.text('Cotton Shirt').first);
+    await tester.pumpAndSettle();
+
+    // Cash tendered and change due are gone: what is tendered and what is owed
+    // are the same number, and requiring them to be typed and matched is what
+    // used to leave the checkout button dead.
+    expect(fieldLabelled('Cash tendered'), findsNothing);
+    expect(find.text('Change due'), findsNothing);
+
+    // The checkout button is a FilledButton — active when its onPressed is
+    // non-null. This is what the old test used to check with a "cash tendered"
+    // field: with the field gone, checking the button directly is the point.
+    final checkout = tester.widget<FilledButton>(
+      find.ancestor(
+        of: find.text('Checkout & print'),
+        matching: find.byType(FilledButton),
+      ),
+    );
+    expect(
+      checkout.onPressed,
+      isNotNull,
+      reason: 'one garment on the bill is enough to take cash',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('cash needs no transaction reference, card does', (tester) async {
+    await pumpPos(tester);
+    await tester.tap(find.text('Cotton Shirt').first);
+    await tester.pumpAndSettle();
+
+    expect(fieldLabelled('Transaction reference'), findsNothing);
+
+    await tester.tap(find.text('Card'));
+    await tester.pumpAndSettle();
+
+    // With no machine set up the cashier copies the reference off the slip.
+    // With one, this box is replaced by the machine's own status.
+    expect(fieldLabelled('Transaction reference'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a split bill offers card or UPI, never both', (tester) async {
+    await pumpPos(tester);
+    await tester.tap(find.text('Cotton Shirt').first);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Split'));
+    await tester.pumpAndSettle();
+
+    // One cash box and one machine box — the customer walks to the terminal
+    // once, and it either takes their card or shows them a QR.
+    expect(fieldLabelled('Cash'), findsOneWidget);
+    expect(fieldLabelled('On the machine'), findsOneWidget);
+    expect(fieldLabelled('UPI'), findsNothing);
+
+    expect(find.text('Card'), findsWidgets);
+    expect(find.text('UPI QR'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the bill carries a number before it is rung up', (tester) async {
+    await pumpPos(tester);
+
+    // Without a number there is nothing to tie a bill to the database, to the
+    // card machine's slip, or to a return three weeks later.
+    expect(find.textContaining('Next bill: INV/'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the bill cannot hold more than the rail does', (tester) async {
+    await pumpPos(tester);
+
+    // Only the first tap is unambiguous — after that the cart also shows the
+    // name. Tap the catalogue tile each time.
+    Finder catalogueTile() => find.text('Cotton Shirt').first;
+    for (var i = 0; i < 5; i++) {
+      await tester.tap(catalogueTile());
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+
+    expect(
+      store.cart.single.quantity,
+      3,
+      reason:
+          'three in stock is three on the bill, however many times it is '
+          'tapped — this is what stopped stock going to minus seven',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('survives a store refresh that replaces the product records', (
+    tester,
+  ) async {
+    await pumpPos(tester);
+    await tester.tap(find.text('Cotton Shirt').first);
+    await tester.pumpAndSettle();
+
+    // refresh() rebuilds every ProductRecord. A cart line still pointing at
+    // the old instance would quote a stale price and a stale stock level.
     await store.refresh();
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Walk-in Customer'), findsOneWidget);
+    expect(store.cart.single.product, same(store.products.single));
   });
 }
