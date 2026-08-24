@@ -88,11 +88,14 @@ class _LoginPageState extends State<LoginPage> {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ClassyClosetPhotoMark(size: 128, path: profile?.logoPath),
+          ClassyClosetPhotoMark(size: 128, path: profile?.brandImagePath),
           const SizedBox(height: AppSpacing.xxl),
           BrandWordmark(
             name: _store.displayStoreName.toUpperCase(),
             size: 30,
+            color: AppColors.brandInk,
+            subColor: AppColors.brandInkFaint,
+            subtitle: profile?.subtitle,
             tagline: (profile?.tagline.trim().isNotEmpty ?? false)
                 ? profile!.tagline.toUpperCase()
                 : null,
@@ -112,7 +115,7 @@ class _LoginPageState extends State<LoginPage> {
           const Spacer(),
           Row(
             children: [
-              const Icon(
+              Icon(
                 Icons.lock_outline_rounded,
                 size: 14,
                 color: AppColors.brandInkFaint,
@@ -257,7 +260,7 @@ class _LoginPageState extends State<LoginPage> {
               children: [
                 Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.info_outline_rounded,
                       size: 15,
                       color: AppColors.goldDeep,

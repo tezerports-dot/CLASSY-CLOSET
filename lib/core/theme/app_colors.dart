@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'brand_theme.dart';
+
 /// The Classy Closet palette.
 ///
 /// Black and gold is the shop's own identity — it is on the sign, the bag and
@@ -38,35 +40,71 @@ class AppColors {
   static const borderSoft = Color(0xFFF2EEE5);
 
   // ----------------------------------------------------------------- brand
+  //
+  // These are `static` rather than `static const` so a shop that rebrands from
+  // Settings can swap in its own palette without a rebuild. The old constants
+  // still read exactly the same on a first-run install because [reset] plants
+  // the classic values on startup — everything painted from them keeps calling
+  // `AppColors.brand` and gets the current shop's brand back.
+
   /// The rail, the top-bar text, dark buttons. A warm near-black rather than a
   /// true black, so it sits with the gold instead of fighting it.
-  static const brand = Color(0xFF17140F);
+  static Color brand = const Color(0xFF17140F);
 
   /// A raised brand surface — a selected rail item.
-  static const brandRaised = Color(0xFF23201A);
+  static Color brandRaised = const Color(0xFF23201A);
 
   /// Hover on a brand surface.
-  static const brandHover = Color(0xFF201C16);
+  static Color brandHover = const Color(0xFF201C16);
 
   /// Gold text and icons on a brand surface.
-  static const brandInk = Color(0xFFF0D67C);
+  static Color brandInk = const Color(0xFFF0D67C);
 
   /// Idle rail text.
-  static const brandInkSoft = Color(0xFFC9BFAC);
+  static Color brandInkSoft = const Color(0xFFC9BFAC);
 
   /// Rail sub-labels.
-  static const brandInkFaint = Color(0xFF8C8474);
+  static Color brandInkFaint = const Color(0xFF8C8474);
 
   // ------------------------------------------------------------------ gold
   /// The single accent: the checkout button, the focus ring, small marks.
-  static const gold = Color(0xFFC9962F);
+  static Color gold = const Color(0xFFC9962F);
 
   /// Gold that stays legible as text on a light ground.
-  static const goldDeep = Color(0xFFB07A16);
+  static Color goldDeep = const Color(0xFFB07A16);
 
   /// A gold tint for badges and the discount field.
-  static const goldWash = Color(0xFFFBF3DE);
-  static const goldWashBorder = Color(0xFFECDCB4);
+  static Color goldWash = const Color(0xFFFBF3DE);
+  static Color goldWashBorder = const Color(0xFFECDCB4);
+
+  /// The current shop's palette in a shape a widget can hand around.
+  ///
+  /// Kept live so anything that reads it (a card that mixes a shadow, a
+  /// button that borrows the accent) sees whatever the Settings screen has
+  /// most recently written.
+  static BrandTheme current = BrandTheme.classic;
+
+  /// Repaints the palette. Called on startup and every time the shop saves a
+  /// new brand under Settings; the theme is rebuilt from these values on the
+  /// next frame, so nothing outside `theme/` needs to know it happened.
+  static void install(BrandTheme theme) {
+    final p = theme.resolve();
+    current = theme;
+    brand = p.brand;
+    brandRaised = p.brandRaised;
+    brandHover = p.brandHover;
+    brandInk = p.brandInk;
+    brandInkSoft = p.brandInkSoft;
+    brandInkFaint = p.brandInkFaint;
+    gold = p.gold;
+    goldDeep = p.goldDeep;
+    goldWash = p.goldWash;
+    goldWashBorder = p.goldWashBorder;
+    // Warn shares its hex with goldDeep by design — a warning here *is* the
+    // deep accent — so it moves with the accent, not the fixed literal.
+    warn = p.goldDeep;
+    warnWash = p.goldWash;
+  }
 
   // ---------------------------------------------------------------- status
   static const success = Color(0xFF1F7A4D);
@@ -74,8 +112,8 @@ class AppColors {
 
   /// Low stock, pending, partial. Shares its hex with [goldDeep] on purpose —
   /// a warning in this palette *is* the deep gold.
-  static const warn = Color(0xFFB07A16);
-  static const warnWash = Color(0xFFFBF3DE);
+  static Color warn = const Color(0xFFB07A16);
+  static Color warnWash = const Color(0xFFFBF3DE);
 
   static const danger = Color(0xFFC0392B);
   static const dangerWash = Color(0xFFF7E7E4);

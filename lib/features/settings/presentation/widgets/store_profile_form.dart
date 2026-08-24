@@ -341,8 +341,12 @@ class _StoreProfileFormState extends State<StoreProfileForm> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
+    // copyWith rather than a fresh StoreProfile so the brand image, subtitle
+    // and colour scheme set on the sibling Brand tab are not clobbered when
+    // this tab is saved on its own.
+    final base = widget.store.storeProfile ?? StoreProfile.firstRunDefaults;
     await widget.store.saveStoreProfile(
-      StoreProfile(
+      base.copyWith(
         storeName: _storeName.text.trim(),
         logoPath: _logoPath,
         address: _address.text.trim(),

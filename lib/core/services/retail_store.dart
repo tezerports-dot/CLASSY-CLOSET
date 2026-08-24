@@ -8,6 +8,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../database/app_database.dart';
+import '../theme/app_colors.dart';
+import '../theme/brand_theme.dart';
 import '../utils/formatters.dart';
 import 'gst.dart';
 import 'held_bills.dart';
@@ -51,6 +53,8 @@ class StoreProfile {
     required this.storeName,
     required this.currencySymbol,
     this.logoPath,
+    this.brandImagePath,
+    this.subtitle = "MEN'S FASHION STORE",
     this.address,
     this.phone,
     this.email,
@@ -65,6 +69,7 @@ class StoreProfile {
     this.declarationText = '',
     this.bankDetails = '',
     this.jurisdiction = '',
+    this.brandTheme = BrandTheme.classic,
   });
 
   /// What a fresh installation starts from.
@@ -81,6 +86,7 @@ class StoreProfile {
     gstin: '08KGDPK6891Q1Z8',
     stateCode: '08',
     receiptNumberPrefix: 'CC',
+    subtitle: "MEN'S FASHION STORE",
     // The logo already carries "Men's Fashion Store", so the tagline is only
     // the half the artwork does not say.
     tagline: 'Look Classy, Feel Content',
@@ -96,7 +102,19 @@ class StoreProfile {
 
   final String storeName;
   final String currencySymbol;
+
+  /// The receipt logo printed on the thermal bill. Kept small and mono for the
+  /// print head to render cleanly. What lands under Settings → Printing.
   final String? logoPath;
+
+  /// The brand mark shown on the login panel, the rail and the app title bar.
+  /// A full-colour image is fine here; the print path stays with [logoPath].
+  final String? brandImagePath;
+
+  /// The small line under the shop name on the login card and the rail's
+  /// wordmark. The logo already carries the shop's category, so this is the
+  /// half the artwork does not say.
+  final String subtitle;
   final String? address;
   final String? phone;
   final String? email;
@@ -130,6 +148,11 @@ class StoreProfile {
   /// "Subject to <city> jurisdiction".
   final String jurisdiction;
 
+  /// The colour palette everything paints against. Ships with a small set of
+  /// named combos plus a custom entry where the owner picks two colours. A
+  /// second shop can rebrand in one sitting from Settings without a rebuild.
+  final BrandTheme brandTheme;
+
   /// Falls back to the state code embedded in the GSTIN when none was entered.
   String? get effectiveStateCode =>
       (stateCode != null && stateCode!.trim().isNotEmpty)
@@ -142,6 +165,8 @@ class StoreProfile {
     'storeName': storeName,
     'currencySymbol': currencySymbol,
     'logoPath': logoPath,
+    'brandImagePath': brandImagePath,
+    'subtitle': subtitle,
     'address': address,
     'phone': phone,
     'email': email,
@@ -156,12 +181,15 @@ class StoreProfile {
     'declarationText': declarationText,
     'bankDetails': bankDetails,
     'jurisdiction': jurisdiction,
+    'brandTheme': brandTheme.toJson(),
   };
 
   factory StoreProfile.fromJson(Map<String, dynamic> json) => StoreProfile(
     storeName: (json['storeName'] as String? ?? '').trim(),
     currencySymbol: (json['currencySymbol'] as String? ?? '₹').trim(),
     logoPath: json['logoPath'] as String?,
+    brandImagePath: json['brandImagePath'] as String?,
+    subtitle: (json['subtitle'] as String? ?? "MEN'S FASHION STORE").trim(),
     address: json['address'] as String?,
     phone: json['phone'] as String?,
     email: json['email'] as String?,
@@ -176,6 +204,55 @@ class StoreProfile {
     declarationText: (json['declarationText'] as String? ?? '').trim(),
     bankDetails: (json['bankDetails'] as String? ?? '').trim(),
     jurisdiction: (json['jurisdiction'] as String? ?? '').trim(),
+    brandTheme: BrandTheme.fromJson(json['brandTheme']),
+  );
+
+  StoreProfile copyWith({
+    String? storeName,
+    String? currencySymbol,
+    String? logoPath,
+    bool clearLogoPath = false,
+    String? brandImagePath,
+    bool clearBrandImagePath = false,
+    String? subtitle,
+    String? address,
+    String? phone,
+    String? email,
+    String? taxRegistrationNumber,
+    String? receiptFooterText,
+    String? receiptNumberPrefix,
+    String? gstin,
+    String? stateCode,
+    String? currencyLocale,
+    String? tagline,
+    String? termsText,
+    String? declarationText,
+    String? bankDetails,
+    String? jurisdiction,
+    BrandTheme? brandTheme,
+  }) => StoreProfile(
+    storeName: storeName ?? this.storeName,
+    currencySymbol: currencySymbol ?? this.currencySymbol,
+    logoPath: clearLogoPath ? null : (logoPath ?? this.logoPath),
+    brandImagePath: clearBrandImagePath
+        ? null
+        : (brandImagePath ?? this.brandImagePath),
+    subtitle: subtitle ?? this.subtitle,
+    address: address ?? this.address,
+    phone: phone ?? this.phone,
+    email: email ?? this.email,
+    taxRegistrationNumber: taxRegistrationNumber ?? this.taxRegistrationNumber,
+    receiptFooterText: receiptFooterText ?? this.receiptFooterText,
+    receiptNumberPrefix: receiptNumberPrefix ?? this.receiptNumberPrefix,
+    gstin: gstin ?? this.gstin,
+    stateCode: stateCode ?? this.stateCode,
+    currencyLocale: currencyLocale ?? this.currencyLocale,
+    tagline: tagline ?? this.tagline,
+    termsText: termsText ?? this.termsText,
+    declarationText: declarationText ?? this.declarationText,
+    bankDetails: bankDetails ?? this.bankDetails,
+    jurisdiction: jurisdiction ?? this.jurisdiction,
+    brandTheme: brandTheme ?? this.brandTheme,
   );
 }
 
@@ -868,7 +945,20 @@ class RetailStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<String?> copyLogoToAppFolder(String? sourcePath) async {
+  Future<String?> copyLogoToAppFolder(String? sourcePath) =>
+      _copyBrandImage(sourcePath, base: 'store_logo');
+
+  /// The larger brand image shown on the login card and in the rail. Kept in
+  /// the app's own folder so a shop that moves or deletes the source file
+  /// still sees its mark. Same shape as [copyLogoToAppFolder] — split so the
+  /// two files land under different names.
+  Future<String?> copyBrandImageToAppFolder(String? sourcePath) =>
+      _copyBrandImage(sourcePath, base: 'brand_image');
+
+  Future<String?> _copyBrandImage(
+    String? sourcePath, {
+    required String base,
+  }) async {
     if (sourcePath == null || sourcePath.trim().isEmpty) return null;
     final source = File(sourcePath);
     if (!source.existsSync()) return sourcePath;
@@ -876,7 +966,7 @@ class RetailStore extends ChangeNotifier {
     final extension = p.extension(source.path).isEmpty
         ? '.png'
         : p.extension(source.path);
-    final target = File(p.join(directory.path, 'store_logo$extension'));
+    final target = File(p.join(directory.path, '$base$extension'));
     await source.copy(target.path);
     return target.path;
   }
@@ -3376,6 +3466,10 @@ class RetailStore extends ChangeNotifier {
       symbol: storeProfile?.currencySymbol,
       locale: storeProfile?.currencyLocale,
     );
+    // Repaint the palette from the shop's saved brand. Called every refresh
+    // so a change under Settings takes on the next frame without having to
+    // hot-restart. Missing profile falls back to the classic palette.
+    AppColors.install(storeProfile?.brandTheme ?? BrandTheme.classic);
   }
 
   Future<void> _loadGstSettings() async {

@@ -9,6 +9,7 @@ import '../../../core/services/retail_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/ui_kit.dart';
 import 'widgets/backup_panel.dart';
+import 'widgets/brand_look_form.dart';
 import 'widgets/change_password_form.dart';
 import 'widgets/gst_settings_form.dart';
 import 'widgets/printer_settings_form.dart';
@@ -28,6 +29,7 @@ class SettingsPage extends StatefulWidget {
 
 enum _Tab {
   shop('Shop', Icons.storefront_outlined),
+  brand('Brand look', Icons.palette_outlined),
   tax('GST', Icons.percent_rounded),
   printing('Printing', Icons.print_outlined),
   account('Your account', Icons.lock_outline_rounded),
@@ -107,6 +109,17 @@ class _SettingsPageState extends State<SettingsPage> {
                   child: StoreProfileForm(
                     store: _store,
                     onSaved: () => _toast('Shop profile saved.'),
+                  ),
+                ),
+                _Tab.brand => SectionCard(
+                  title: 'Brand look',
+                  subtitle:
+                      'The image on the sign, the wordmark, and the two '
+                      'colours the app paints itself with. A second shop '
+                      'rebrands from here — no rebuild.',
+                  child: BrandLookForm(
+                    store: _store,
+                    onSaved: () => _toast('Brand look saved.'),
                   ),
                 ),
                 _Tab.tax => SectionCard(
