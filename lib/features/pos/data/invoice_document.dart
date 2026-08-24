@@ -234,12 +234,19 @@ List<pw.Widget> _rollBody(
     ],
 
     _rollDivider(),
-    _rollTotal('Taxable', sale.taxableValue, base),
+    // Subtotal is the sum of the printed line totals, so a customer looking
+    // at the roll can add the item column up and see the same number.
+    _rollTotal(
+      'Subtotal',
+      data.lines.fold<double>(0, (sum, l) => sum + l.lineTotal),
+      base,
+    ),
+    if (sale.discountTotal > 0)
+      _rollTotal('Discount', -sale.discountTotal, base),
+    if (sale.taxTotal > 0) _rollTotal('Taxable', sale.taxableValue, base),
     if (sale.cgst > 0) _rollTotal('CGST', sale.cgst, base),
     if (sale.sgst > 0) _rollTotal('SGST', sale.sgst, base),
     if (sale.igst > 0) _rollTotal('IGST', sale.igst, base),
-    if (sale.discountTotal > 0)
-      _rollTotal('Discount', sale.discountTotal, base),
     _rollDivider(),
     _rollTotal('TOTAL', sale.total, base + 2, bold: true),
     _rollTotal('Paid', data.paid, base),
@@ -519,9 +526,14 @@ List<pw.Widget> _sheetBody(InvoiceData data, pw.MemoryImage? logo) {
           width: 210,
           child: pw.Column(
             children: [
-              _sheetTotal('Taxable value', sale.taxableValue),
+              _sheetTotal(
+                'Subtotal',
+                data.lines.fold<double>(0, (sum, l) => sum + l.lineTotal),
+              ),
               if (sale.discountTotal > 0)
-                _sheetTotal('Discount', sale.discountTotal),
+                _sheetTotal('Discount', -sale.discountTotal),
+              if (sale.taxTotal > 0)
+                _sheetTotal('Taxable value', sale.taxableValue),
               if (sale.cgst > 0) _sheetTotal('CGST', sale.cgst),
               if (sale.sgst > 0) _sheetTotal('SGST', sale.sgst),
               if (sale.igst > 0) _sheetTotal('IGST', sale.igst),

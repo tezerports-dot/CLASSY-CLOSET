@@ -99,11 +99,20 @@ Uint8List buildThermalReceipt({
         '${line.discount > 0 ? '  less ${AppFormatters.amount(line.discount)}' : ''}';
     builder.columns2(qtyAndRate, AppFormatters.amount(line.lineTotal));
   }
+  // Sum of the printed line totals — the gross subtotal before the discount.
+  // Reading from the lines rather than sale.taxableValue+taxTotal is what
+  // makes the "Subtotal / Discount / Total" block reconcile visibly: the
+  // shopkeeper can add the item column up and get the Subtotal.
+  final grossSubtotal = data.lines.fold<double>(
+    0,
+    (sum, line) => sum + line.lineTotal,
+  );
+
   builder
     ..rule()
     ..columns2(
       'Items ${AppFormatters.quantity(data.totalQuantity)}',
-      AppFormatters.amount(sale.taxableValue + sale.taxTotal),
+      AppFormatters.amount(grossSubtotal),
     );
 
   // ------------------------------------------------------------------ taxes

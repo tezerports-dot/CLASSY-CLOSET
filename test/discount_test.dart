@@ -71,15 +71,28 @@ void main() {
       expect(store.cartGrandTotal(), 1800);
     });
 
-    test('it is spread across the lines in proportion to their value', () {
+    test('sits at bill level and does not touch the printed lines', () {
+      // The old behaviour split a bill-level discount across the line rows so
+      // per-line tax stayed reconcilable; the printed bill then carried a
+      // "less …" fragment on every item and showed the discount twice. The
+      // shopkeeper wanted one discount figure on one line: this test locks in
+      // that shape — a bill discount reads back on the store, not on the
+      // items.
       store.addToCart(kurta()); // 1500 — three quarters of the bill
       store.addToCart(dupatta()); // 500 — one quarter
 
       store.applyBillDiscount(200);
 
-      final lines = {for (final l in store.cart) l.product.sku: l};
-      expect(lines['KRT']!.discount, 150);
-      expect(lines['DUP']!.discount, 50);
+      expect(store.billDiscount, 200);
+      for (final line in store.cart) {
+        expect(
+          line.discount,
+          0,
+          reason: 'a bill discount must not distribute onto the lines',
+        );
+      }
+      expect(store.cartDiscountTotal, 200);
+      expect(store.cartGrandTotal(), 1800);
     });
 
     test('the pieces always add back up to the discount given', () {
@@ -99,8 +112,11 @@ void main() {
     });
 
     test('the GST on the bill is charged on the discounted value', () async {
-      // This is the reason the discount is apportioned rather than subtracted
-      // from the total: tax follows the money actually charged.
+      // Discount from the net, then GST on the discounted value — one slab,
+      // one tax figure. Old behaviour split the discount onto each line and
+      // rounded each line's tax halves separately, which added a paisa to the
+      // total; the new bill-level path rounds once on the aggregate, so the
+      // number the customer sees is the same as the number the return shows.
       store.addToCart(kurta());
       store.addToCart(dupatta());
       store.applyBillDiscount(200);
@@ -109,14 +125,12 @@ void main() {
 
       expect(sale.total, 1800);
       expect(sale.discountTotal, 200);
-      // Shelf prices include GST, and tax is worked out per line and summed —
-      // which is what the invoice prints — so the kurta at 1,350 gives 64.29
-      // and the dupatta at 450 gives 21.43.
-      expect(sale.cgst + sale.sgst, 85.72);
-      expect(sale.taxableValue, 1714.28);
-      // The parts have to reconstruct the total a customer was charged, to the
-      // paisa. Anything else is an invoice that does not foot.
-      expect(sale.taxableValue + sale.taxTotal, 1800);
+      // 1,800 at 5% inclusive: taxable = 1,714.29, tax = 85.71.
+      expect(sale.cgst + sale.sgst, closeTo(85.71, 0.001));
+      expect(sale.taxableValue, 1714.29);
+      // The parts have to reconstruct the total a customer was charged, to
+      // the paisa. Anything else is an invoice that does not foot.
+      expect(sale.taxableValue + sale.taxTotal, closeTo(1800, 0.001));
     });
 
     test('a discount bigger than the bill is capped, not negative', () {
@@ -156,10 +170,14 @@ void main() {
       expect(store.cartGrandTotal(), 1500);
     });
 
-    test('an empty cart is left alone', () {
+    test('an empty cart cannot carry a discount', () {
       store.applyBillDiscount(100);
 
       expect(store.cart, isEmpty);
+      // Nothing to discount, so the clamp resolves to zero — the next basket
+      // starts clean rather than surprising the customer with 100 off.
+      expect(store.billDiscount, 0);
+      expect(store.cartDiscountTotal, 0);
     });
   });
 

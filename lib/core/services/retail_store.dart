@@ -1457,14 +1457,27 @@ class RetailStore extends ChangeNotifier {
     }
   }
 
-  /// Total taken off the cart, however it was applied.
+  /// Flat amount taken off the whole bill — "call it 1,800". Held as a scalar
+  /// rather than distributed across the lines because the shop wants one
+  /// discount figure on the printed bill, not a fragment beside every item.
+  /// [checkout] and [cartTotals] apply it to the subtotal before GST is
+  /// computed, so the tax printed on the bill is the tax on the net.
+  double _billDiscount = 0.0;
+
+  /// The current bill discount, clamped to what the cart is worth so removing
+  /// items after typing the discount cannot leave a negative total.
+  double get billDiscount => _money(_billDiscount.clamp(0, cartGrossTotal));
+
+  /// Total taken off the cart — per-line discounts (unused today, kept as a
+  /// building block) plus the bill-level discount.
   double get cartDiscountTotal =>
-      cart.fold(0.0, (sum, line) => sum + line.discount);
+      cart.fold(0.0, (sum, line) => sum + line.discount) + billDiscount;
 
   /// The cart before any discount.
   double get cartGrossTotal => cart.fold(0.0, (sum, line) => sum + line.gross);
 
-  /// Takes a flat rupee amount off a single line.
+  /// Takes a flat rupee amount off a single line. Left in the API as a
+  /// building block; the till does not expose it today.
   void setLineDiscount(CartLine line, double amount) {
     line.discount = _money(amount.clamp(0, line.gross));
     notifyListeners();
@@ -1473,41 +1486,22 @@ class RetailStore extends ChangeNotifier {
   /// Takes a flat rupee amount off the whole bill — "the total came to 2,000,
   /// give them 200 off".
   ///
-  /// The amount is spread across the lines in proportion to what each is worth,
-  /// rather than simply subtracted from the total. That is not cosmetic: GST is
-  /// charged on the discounted value, so a bill-level discount that never
-  /// reaches the lines would print CGST and SGST figures that do not add up to
-  /// the total the customer is being asked to pay.
-  ///
-  /// Rounding leftovers land on the largest line, so the discount shown is
-  /// exactly the discount given, to the paisa.
+  /// Stored as one number rather than spread across the lines. The old
+  /// approach distributed the discount pro-rata onto each line's own discount
+  /// so per-line tax stayed reconcilable, but that meant every printed line
+  /// carried a "less …" fragment and the bill panel showed the money twice.
+  /// The shop reads a bill as "here is what you bought, here is one discount,
+  /// here is what you pay", so the discount now sits at bill level, GST is
+  /// computed on the discounted net (see [cartTotals]), and the printed lines
+  /// stay clean.
   void applyBillDiscount(double amount) {
-    if (cart.isEmpty) return;
-    final gross = cartGrossTotal;
-    final target = _money(amount.clamp(0, gross));
-    if (gross <= 0) return;
-
-    var allocated = 0.0;
-    var largest = cart.first;
-    for (final line in cart) {
-      final share = _money(target * line.gross / gross);
-      line.discount = share;
-      allocated += share;
-      if (line.gross > largest.gross) largest = line;
-    }
-    // Pro-rata shares rarely sum to the target exactly; the remainder goes on
-    // the biggest line, where a paisa is least visible.
-    final remainder = _money(target - allocated);
-    if (remainder != 0) {
-      largest.discount = _money(
-        (largest.discount + remainder).clamp(0, largest.gross),
-      );
-    }
+    _billDiscount = _money(amount.clamp(0, cartGrossTotal));
     notifyListeners();
   }
 
-  /// Clears every discount on the cart.
+  /// Clears the bill discount and any per-line discounts.
   void clearDiscounts() {
+    _billDiscount = 0;
     for (final line in cart) {
       line.discount = 0;
     }
@@ -1516,6 +1510,9 @@ class RetailStore extends ChangeNotifier {
 
   void removeFromCart(CartLine line) {
     cart.remove(line);
+    // A discount on an empty bill has nothing to reduce; drop it so the next
+    // basket starts clean.
+    if (cart.isEmpty) _billDiscount = 0;
     notifyListeners();
   }
 
@@ -1546,16 +1543,93 @@ class RetailStore extends ChangeNotifier {
 
   /// Grand total of the cart as the customer will pay it.
   ///
-  /// With tax-inclusive pricing — the Indian retail norm — this is just the sum
-  /// of the line totals, because GST is already inside the shelf price. With
-  /// tax-exclusive pricing the tax is added on top.
-  double cartGrandTotal({CustomerRecord? customer}) {
-    var total = 0.0;
-    for (final line in cart) {
-      final tax = lineTaxFor(line, customer: customer);
-      total += gstSettings.pricesIncludeTax ? line.total : tax.grossValue;
+  /// With tax-inclusive pricing — the Indian retail norm — this is just the
+  /// sum of the line totals minus the bill discount, because GST is already
+  /// inside the shelf price. With tax-exclusive pricing the tax is added on
+  /// top of the discounted taxable value.
+  double cartGrandTotal({CustomerRecord? customer}) =>
+      cartTotals(customer: customer).total;
+
+  /// Every figure the pinned footer and the checkout arithmetic need, in one
+  /// pass.
+  ///
+  /// The bill discount is applied at the whole-bill level, then the tax is
+  /// derived from the discounted net — that is the shape the shopkeeper asked
+  /// for. When the cart mixes GST rates the discount is split across the rate
+  /// slabs in proportion to their share of the gross, so the arithmetic still
+  /// balances line-by-line inside each slab.
+  CartTotals cartTotals({CustomerRecord? customer}) {
+    if (cart.isEmpty) {
+      return const CartTotals(
+        gross: 0,
+        billDiscount: 0,
+        lineDiscount: 0,
+        taxable: 0,
+        cgst: 0,
+        sgst: 0,
+        igst: 0,
+        total: 0,
+      );
     }
-    return _money(total);
+
+    final interState = _isInterState(customer);
+    var gross = 0.0;
+    var lineDiscount = 0.0;
+    final byRate = <double, _RateBasket>{};
+    for (final line in cart) {
+      gross += line.gross;
+      lineDiscount += line.discount;
+      final rate = gstRateFor(line.product);
+      // A line whose per-line discount is non-zero contributes to the slab at
+      // its post-discount value — the per-line discount is the operator's own
+      // adjustment, not the bill-level one.
+      final basket = byRate.putIfAbsent(rate, _RateBasket.new);
+      basket.gross += line.total;
+    }
+
+    final billDiscount = _money(_billDiscount.clamp(0, gross - lineDiscount));
+    final basketGrossTotal = byRate.values.fold<double>(
+      0,
+      (sum, b) => sum + b.gross,
+    );
+
+    var taxable = 0.0, cgst = 0.0, sgst = 0.0, igst = 0.0, total = 0.0;
+    var remaining = billDiscount;
+    final entries = byRate.entries.toList();
+    for (var i = 0; i < entries.length; i++) {
+      final entry = entries[i];
+      final rate = entry.key;
+      final basket = entry.value;
+      // Last slab takes whatever is left of the bill discount, so rounding
+      // never leaves a paisa behind or over.
+      final share = i == entries.length - 1
+          ? remaining
+          : _money(billDiscount * basket.gross / basketGrossTotal);
+      remaining = _money(remaining - share);
+      final slabNet = basket.gross - share;
+      final slabTax = computeLineTax(
+        lineTotal: slabNet,
+        ratePercent: rate,
+        priceIncludesTax: gstSettings.pricesIncludeTax,
+        interState: interState,
+      );
+      taxable += slabTax.taxableValue;
+      cgst += slabTax.cgst;
+      sgst += slabTax.sgst;
+      igst += slabTax.igst;
+      total += gstSettings.pricesIncludeTax ? slabNet : slabTax.grossValue;
+    }
+
+    return CartTotals(
+      gross: _money(gross),
+      billDiscount: billDiscount,
+      lineDiscount: _money(lineDiscount),
+      taxable: _money(taxable),
+      cgst: _money(cgst),
+      sgst: _money(sgst),
+      igst: _money(igst),
+      total: _money(total),
+    );
   }
 
   Future<SaleRecord> checkout({
@@ -1576,24 +1650,21 @@ class RetailStore extends ChangeNotifier {
       for (final line in snapshot) lineTaxFor(line, customer: customer),
     ];
 
-    var taxableTotal = 0.0, cgst = 0.0, sgst = 0.0, igst = 0.0;
-    var grandTotal = 0.0, discountTotal = 0.0, costTotal = 0.0;
-    for (var i = 0; i < snapshot.length; i++) {
-      final line = snapshot[i];
-      final tax = taxes[i];
-      taxableTotal += tax.taxableValue;
-      cgst += tax.cgst;
-      sgst += tax.sgst;
-      igst += tax.igst;
-      discountTotal += line.discount;
+    // Bill-level totals — taxable and tax already reflect the bill discount.
+    // Per-line values below are computed without it, so each SaleItem row
+    // still reads as its own item's math; SaleRow.discountTotal explains the
+    // difference to the customer-facing total.
+    final totals = cartTotals(customer: customer);
+    final taxableTotal = totals.taxable;
+    final cgst = totals.cgst;
+    final sgst = totals.sgst;
+    final igst = totals.igst;
+    final grandTotal = totals.total;
+    final discountTotal = totals.billDiscount + totals.lineDiscount;
+    var costTotal = 0.0;
+    for (final line in snapshot) {
       costTotal += line.cost;
-      grandTotal += gstSettings.pricesIncludeTax ? line.total : tax.grossValue;
     }
-    taxableTotal = _money(taxableTotal);
-    cgst = _money(cgst);
-    sgst = _money(sgst);
-    igst = _money(igst);
-    grandTotal = _money(grandTotal);
 
     // Profit is measured on the taxable value: GST collected belongs to the
     // government, not the shop, so counting it as revenue overstates margin.
@@ -1737,6 +1808,7 @@ class RetailStore extends ChangeNotifier {
       );
     });
     cart.clear();
+    _billDiscount = 0;
     await refresh();
     return sale;
   }
@@ -4030,4 +4102,48 @@ class ExpenseRecord {
   final double amount;
   final DateTime spentAt;
   final String? notes;
+}
+
+/// A one-shot summary of every figure the till and the checkout need.
+///
+/// Kept as a value so the pinned footer and the checkout share one pass over
+/// the cart — the pinned footer would otherwise recompute the same slab-wise
+/// GST arithmetic five times per rebuild for no gain.
+class CartTotals {
+  const CartTotals({
+    required this.gross,
+    required this.billDiscount,
+    required this.lineDiscount,
+    required this.taxable,
+    required this.cgst,
+    required this.sgst,
+    required this.igst,
+    required this.total,
+  });
+
+  /// Sum of the shelf prices before any discount.
+  final double gross;
+
+  /// The flat amount taken off the whole bill.
+  final double billDiscount;
+
+  /// Sum of any per-line discounts (unused by the till today).
+  final double lineDiscount;
+
+  /// Value the tax is charged on — the discounted net less its own GST.
+  final double taxable;
+  final double cgst;
+  final double sgst;
+  final double igst;
+
+  /// What the customer pays.
+  final double total;
+
+  double get discountTotal => billDiscount + lineDiscount;
+  double get taxTotal => cgst + sgst + igst;
+}
+
+/// Scratch slab used while allocating the bill discount across GST rates.
+class _RateBasket {
+  double gross = 0;
 }
