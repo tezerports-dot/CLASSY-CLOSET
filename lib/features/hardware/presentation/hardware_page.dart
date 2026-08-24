@@ -95,6 +95,12 @@ class _HardwarePageState extends State<HardwarePage> {
                       'What is plugged into this counter, and whether it '
                       'is answering.',
                 ),
+                // A one-glance summary of what is assigned to what. The
+                // detail cards below still hold the picker and the tester —
+                // this row is what the shopkeeper looks at to know the
+                // counter is ready to open, without scrolling five cards.
+                _assignmentSummary(context),
+                const SizedBox(height: AppSpacing.xl),
                 if (!_printer.supportsDirectPrinting)
                   const Padding(
                     padding: EdgeInsets.only(bottom: AppSpacing.xl),
@@ -118,6 +124,165 @@ class _HardwarePageState extends State<HardwarePage> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  // -------------------------------------------------- device assignments
+
+  /// A compact panel that names every device slot and the connected device
+  /// currently filling it, with a coloured pill for each. Nothing here writes
+  /// anything back — the pickers and testers live in the per-device cards
+  /// below — but the assistant sees at a glance whether every slot is set.
+  Widget _assignmentSummary(BuildContext context) {
+    final printer = _settings;
+    final terminal = _store.posTerminalSettings;
+    final billName = (printer.printerName ?? '').trim();
+    final labelName = (printer.labelPrinterName ?? '').trim();
+    return SectionCard(
+      title: 'Connected devices',
+      subtitle:
+          'Plug each device in over USB, LAN or Bluetooth once, pick which '
+          'slot it fills below, and the till uses it automatically from then '
+          'on — no more picking a printer at every sale.',
+      child: Column(
+        children: [
+          _assignmentRow(
+            icon: Icons.receipt_long_outlined,
+            role: 'Bill printer',
+            value: printer.isThermal
+                ? (billName.isEmpty ? 'Windows default' : billName)
+                : 'Print dialog (no direct printer)',
+            ok: printer.isThermal && billName.isNotEmpty,
+            hint: printer.isThermal
+                ? 'Bills go straight to the roll — no dialog.'
+                : 'Bills open the Windows dialog. Switch to a thermal '
+                      'printer under "Receipt printer" to skip it.',
+          ),
+          _assignmentRow(
+            icon: Icons.qr_code_2_outlined,
+            role: 'Label printer',
+            value: labelName.isEmpty ? 'Same as bill printer' : labelName,
+            ok: labelName.isNotEmpty,
+            hint: labelName.isEmpty
+                ? 'Barcode labels share the bill printer. Pick a dedicated '
+                      'label printer under "Barcode label printer" if the '
+                      'shop has two.'
+                : 'Labels route straight to it from Products → Labels.',
+          ),
+          _assignmentRow(
+            icon: Icons.qr_code_scanner_rounded,
+            role: 'Barcode scanner',
+            value: _lastScanAt == null
+                ? 'Waiting for a scan'
+                : 'Answering (last scan '
+                      '${AppFormatters.time(_lastScanAt!)})',
+            ok: _lastScanAt != null,
+            hint:
+                'Any USB or Bluetooth scanner works — it behaves as a '
+                'keyboard. Test one below.',
+          ),
+          _assignmentRow(
+            icon: Icons.credit_card_rounded,
+            role: 'Card machine (POS)',
+            value: terminal.isConfigured
+                ? '${terminal.host}:${terminal.port}'
+                      '${terminal.terminalId.isEmpty ? '' : ' · TID ${terminal.terminalId}'}'
+                : 'Not connected — reference typed by hand',
+            ok: terminal.isConfigured,
+            hint: terminal.isConfigured
+                ? 'Checkout pushes the amount at the machine and stamps the '
+                      'bill with the bank reference automatically.'
+                : 'Add the terminal under "Card machine (Paytm POS)" and the '
+                      'till will drive it on every card or UPI sale.',
+          ),
+          if (printer.openDrawerOnCashSale)
+            _assignmentRow(
+              icon: Icons.point_of_sale_outlined,
+              role: 'Cash drawer',
+              value:
+                  'Kicks pin ${printer.drawerPin == 1 ? '5' : '2'} on the bill printer',
+              ok: printer.isThermal,
+              hint: printer.isThermal
+                  ? 'The drawer opens on every cash sale.'
+                  : 'The drawer needs the thermal printer — plug it in and '
+                        'pick it above.',
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _assignmentRow({
+    required IconData icon,
+    required String role,
+    required String value,
+    required bool ok,
+    required String hint,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: ok ? AppColors.successWash : AppColors.warnWash,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              icon,
+              size: 17,
+              color: ok ? AppColors.success : AppColors.warn,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      role,
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    StatusPill(
+                      ok ? 'Ready' : 'Not set',
+                      tone: ok ? PillTone.good : PillTone.caution,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: AppColors.inkSoft,
+                  ),
+                ),
+                if (hint.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    hint,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: AppColors.inkFaint,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
