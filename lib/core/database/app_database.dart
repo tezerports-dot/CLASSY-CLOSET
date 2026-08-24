@@ -185,7 +185,22 @@ class Purchases extends Table {
   RealColumn get subtotal => real().withDefault(const Constant(0))();
   RealColumn get taxTotal => real().withDefault(const Constant(0))();
   RealColumn get grandTotal => real().withDefault(const Constant(0))();
+
+  /// What was handed over at the moment the delivery was booked.
+  ///
+  /// This never moves again. Money settled later goes to [settledAmount], so a
+  /// supplier statement can still show the delivery as a debit of what was
+  /// left owing on the day and the later payments as separate credits — if
+  /// both landed in one column the payment would be counted twice.
   RealColumn get paidAmount => real().withDefault(const Constant(0))();
+
+  /// Settled afterwards, out of payments recorded against the supplier.
+  /// Allocated oldest delivery first, which is how a wholesaler applies it.
+  RealColumn get settledAmount => real().withDefault(const Constant(0))();
+
+  /// The supplier's own invoice, scanned or photographed, copied into the
+  /// app's data folder. A number alone is not proof; the paper is.
+  TextColumn get invoicePath => text().nullable()();
   DateTimeColumn get purchasedAt =>
       dateTime().withDefault(currentDateAndTime)();
 }
@@ -504,6 +519,27 @@ class HeldBillItems extends Table {
   RealColumn get discount => real().withDefault(const Constant(0))();
 }
 
+/// Permissions granted to one staff member directly, overriding what their
+/// role would give them.
+///
+/// A role is a starting point, not a cage: the owner hires one assistant who
+/// is also trusted with the deliveries and another who is not, and both are
+/// "Cashier". A user with no rows here falls back to their role's set, so an
+/// account nobody has customised behaves exactly as it did before.
+@DataClassName('UserPermissionRow')
+class UserPermissions extends Table {
+  IntColumn get userId =>
+      integer().references(Users, #id, onDelete: KeyAction.cascade)();
+
+  /// The [Permission] enum's name. Stored as text so a permission that is
+  /// renamed or removed in code degrades to "unknown, therefore not granted"
+  /// rather than corrupting the row.
+  TextColumn get code => text().withLength(min: 1, max: 80)();
+
+  @override
+  Set<Column> get primaryKey => {userId, code};
+}
+
 @DataClassName('SettingRow')
 class Settings extends Table {
   TextColumn get key => text()();
@@ -542,6 +578,7 @@ class Settings extends Table {
     StocktakeItems,
     HeldBills,
     HeldBillItems,
+    UserPermissions,
     Expenses,
     ExpenseCategories,
     CashBook,
@@ -559,7 +596,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.withExecutor(super.executor);
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -623,6 +660,14 @@ class AppDatabase extends _$AppDatabase {
         // v7 lets a bill be parked while the customer tries something on.
         await m.createTable(heldBills);
         await m.createTable(heldBillItems);
+      }
+      if (from < 8) {
+        // v8 separates money settled after a delivery from money paid on the
+        // day, keeps the supplier's own invoice alongside its number, and
+        // lets a staff member's permissions be set one by one.
+        await m.addColumn(purchases, purchases.settledAmount);
+        await m.addColumn(purchases, purchases.invoicePath);
+        await m.createTable(userPermissions);
       }
     },
     beforeOpen: (details) async {

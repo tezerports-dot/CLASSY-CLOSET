@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../app/di/injection.dart';
 import '../../../core/services/retail_store.dart';
@@ -53,6 +54,44 @@ class _ReturnsPageState extends State<ReturnsPage> {
 
   @override
   Widget build(BuildContext context) {
+    // A wedge scanner is a keyboard: it types the code and presses enter. That
+    // only reaches the bill box while the bill box has focus, and after
+    // ticking a line or clearing a message it does not — so a scan would go
+    // nowhere and the gun would look broken. This catches the first character
+    // of a scan anywhere on the page and puts the cursor back where it
+    // belongs, which is what makes "just scan the bill" true.
+    return Focus(
+      onKeyEvent: _redirectScanToBillBox,
+      child: AnimatedBuilder(
+        animation: _store,
+        builder: (context, _) => _body(context),
+      ),
+    );
+  }
+
+  /// Sends a keystroke that arrived with nothing focused to the bill box.
+  ///
+  /// The event itself is not consumed — it is let through so the character
+  /// lands in the field it has just been sent to, rather than being swallowed
+  /// and losing the first digit of every scan.
+  KeyEventResult _redirectScanToBillBox(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (_receiptFocus.hasFocus) return KeyEventResult.ignored;
+    final character = event.character;
+    if (character == null || character.trim().isEmpty) {
+      return KeyEventResult.ignored;
+    }
+    // Anything already typing into another box — a reason, a quantity — keeps
+    // it. Only a keystroke with nowhere to go is redirected.
+    if (FocusManager.instance.primaryFocus?.context?.widget is EditableText) {
+      return KeyEventResult.ignored;
+    }
+    _receipt.clear();
+    _receiptFocus.requestFocus();
+    return KeyEventResult.ignored;
+  }
+
+  Widget _body(BuildContext context) {
     return AnimatedBuilder(
       animation: _store,
       builder: (context, _) => SingleChildScrollView(
@@ -86,6 +125,10 @@ class _ReturnsPageState extends State<ReturnsPage> {
                             hintText:
                                 'Scan the barcode on the bill, or type it',
                             prefixIcon: Icon(Icons.qr_code_scanner),
+                            helperText:
+                                'The scan gun types into this box and presses '
+                                'enter, so scanning alone finds the bill — '
+                                'wherever you last clicked.',
                           ),
                           onSubmitted: (_) => _find(),
                         ),

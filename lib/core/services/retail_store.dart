@@ -12,11 +12,11 @@ import '../utils/formatters.dart';
 import 'gst.dart';
 import 'held_bills.dart';
 import 'permissions.dart';
+import 'pos_terminal.dart';
 import 'printer_service.dart';
 import 'reports.dart';
 import 'returns_and_shifts.dart';
 import 'statements.dart';
-import 'stocktake.dart';
 
 class AppUser {
   const AppUser({
@@ -25,6 +25,7 @@ class AppUser {
     required this.username,
     required this.role,
     this.isActive = true,
+    this.grantedPermissions,
   });
   final int id;
   final String name;
@@ -32,7 +33,16 @@ class AppUser {
   final AppRole role;
   final bool isActive;
 
-  Set<Permission> get permissions => permissionsFor(role);
+  /// What the owner ticked for this person specifically. Null means nobody has
+  /// customised the account, so the role decides — which is what every account
+  /// created before per-user permissions existed does.
+  final Set<Permission>? grantedPermissions;
+
+  /// True once the account's permissions have been set by hand, so the staff
+  /// screen can say "Custom" rather than implying the role still governs.
+  bool get hasCustomPermissions => grantedPermissions != null;
+
+  Set<Permission> get permissions => grantedPermissions ?? permissionsFor(role);
   bool can(Permission permission) => permissions.contains(permission);
 }
 
@@ -312,6 +322,9 @@ class CustomerRecord {
     required this.balance,
     this.gstin = '',
     this.stateCode = '',
+    this.lifetimeSpend = 0,
+    this.lifetimeBills = 0,
+    this.lastPurchaseAt,
   });
   final int id;
   final String name;
@@ -321,6 +334,23 @@ class CustomerRecord {
   final double creditLimit;
   final double openingBalance;
   double balance;
+
+  /// Everything this customer has ever spent here, across every bill since the
+  /// shop opened. Counted from the bills themselves rather than kept as a
+  /// running figure, so it can never drift out of step with them.
+  final double lifetimeSpend;
+
+  /// How many bills that was.
+  final int lifetimeBills;
+
+  /// When they were last in. Null for someone who has an account but has not
+  /// bought under it yet.
+  final DateTime? lastPurchaseAt;
+
+  /// Average bill, for the customers screen. Zero for a customer with no
+  /// bills rather than a division by zero.
+  double get averageBill =>
+      lifetimeBills == 0 ? 0 : lifetimeSpend / lifetimeBills;
 
   /// Present for registered buyers who need the invoice in their own name.
   final String gstin;
@@ -399,7 +429,11 @@ class SaleRecord {
 
 class CartLine {
   CartLine({required this.product, required this.quantity, this.discount = 0});
-  final ProductRecord product;
+
+  /// Re-pointed by [RetailStore._relinkCart] after a refresh, because the
+  /// catalogue is rebuilt from scratch and a bill must not keep quoting a
+  /// price or a stock level that has since moved.
+  ProductRecord product;
   int quantity;
 
   /// Flat amount taken off this line, not a percentage.
@@ -452,6 +486,7 @@ class RetailStore extends ChangeNotifier {
   static const storeProfileKey = 'store_profile';
   static const gstSettingsKey = 'gst_settings';
   static const printerSettingsKey = 'printer_settings';
+  static const posTerminalSettingsKey = 'pos_terminal_settings';
   static const invoiceCounterKey = 'invoice_counter';
 
   final AppDatabase _db;
@@ -459,6 +494,7 @@ class RetailStore extends ChangeNotifier {
   StoreProfile? storeProfile;
   GstSettings gstSettings = const GstSettings();
   PrinterSettings printerSettings = const PrinterSettings();
+  PosTerminalSettings posTerminalSettings = const PosTerminalSettings();
   final products = <ProductRecord>[];
   final styles = <StyleRecord>[];
   final customers = <CustomerRecord>[];
@@ -549,6 +585,7 @@ class RetailStore extends ChangeNotifier {
       _loadStoreProfile(),
       _loadGstSettings(),
       _loadPrinterSettings(),
+      _loadPosTerminalSettings(),
       _loadLookups(),
       _loadSuppliers(),
       _loadProducts(),
@@ -564,9 +601,9 @@ class RetailStore extends ChangeNotifier {
     // read the catalogue, so all three load after those rather than alongside.
     await _loadShifts();
     await _loadPartyPayments();
-    await _loadStocktakes();
     await _loadHeldBills();
     _rebuildStyles();
+    _relinkCart();
     notifyListeners();
   }
 
@@ -586,6 +623,7 @@ class RetailStore extends ChangeNotifier {
       name: row.fullName,
       username: row.username,
       role: _roleFromName(role?.name),
+      grantedPermissions: (await _grantedPermissions())[row.id],
     );
     await _audit('AUTH', 'users', row.id, 'Signed in as $normalized');
     notifyListeners();
@@ -604,6 +642,7 @@ class RetailStore extends ChangeNotifier {
     final roles = {
       for (final r in await _db.select(_db.roles).get()) r.id: r.name,
     };
+    final granted = await _grantedPermissions();
     final rows = await _db.select(_db.users).get();
     users
       ..clear()
@@ -615,9 +654,87 @@ class RetailStore extends ChangeNotifier {
             username: u.username,
             role: AppRole.fromName(roles[u.roleId]),
             isActive: u.isActive,
+            grantedPermissions: granted[u.id],
           ),
         ),
       );
+
+    // The signed-in user's own rights can be changed while they are signed in
+    // — by themselves, or by an owner at another till — so the live copy is
+    // refreshed from the same read rather than left as it was at login.
+    final signedIn = currentUser;
+    if (signedIn != null) {
+      currentUser = users.where((u) => u.id == signedIn.id).firstOrNull;
+    }
+  }
+
+  /// Per-user permission overrides, keyed by user. A user absent from the map
+  /// has never been customised and falls back to their role.
+  Future<Map<int, Set<Permission>>> _grantedPermissions() async {
+    final byName = {for (final p in Permission.values) p.name: p};
+    final granted = <int, Set<Permission>>{};
+    for (final row in await _db.select(_db.userPermissions).get()) {
+      // An empty set is meaningful — it says "this person may do nothing" —
+      // so the entry is created even when the code no longer resolves.
+      final set = granted.putIfAbsent(row.userId, () => <Permission>{});
+      final permission = byName[row.code];
+      if (permission != null) set.add(permission);
+    }
+    return granted;
+  }
+
+  /// Replaces one staff member's permissions.
+  ///
+  /// Passing null hands the account back to its role. Passing a set — even an
+  /// empty one — pins it, and the role becomes a label rather than a rule.
+  Future<String?> saveUserPermissions(
+    int userId,
+    Set<Permission>? permissions,
+  ) async {
+    final user = users.where((u) => u.id == userId).firstOrNull;
+    if (user == null) return 'That account could not be found.';
+
+    // Same guard as the role check: the shop must never be able to lock itself
+    // out of its own staff screen.
+    final effective = permissions ?? permissionsFor(user.role);
+    if (!effective.contains(Permission.manageUsers) && user.isActive) {
+      final others = users.where(
+        (u) => u.id != userId && u.isActive && u.can(Permission.manageUsers),
+      );
+      if (others.isEmpty) {
+        return 'This is the only account that can manage staff. Give someone '
+            'else that permission first.';
+      }
+    }
+
+    await _db.transaction(() async {
+      await (_db.delete(
+        _db.userPermissions,
+      )..where((p) => p.userId.equals(userId))).go();
+      if (permissions != null) {
+        for (final permission in permissions) {
+          await _db
+              .into(_db.userPermissions)
+              .insert(
+                UserPermissionsCompanion.insert(
+                  userId: userId,
+                  code: permission.name,
+                ),
+              );
+        }
+      }
+      await _audit(
+        'UPDATE',
+        'users',
+        userId,
+        permissions == null
+            ? 'Reset ${user.username} to the ${user.role.label} role\'s '
+                  'permissions'
+            : 'Set ${user.username} to ${permissions.length} permission(s)',
+      );
+    });
+    await refresh();
+    return null;
   }
 
   /// Creates or updates a staff account.
@@ -830,9 +947,7 @@ class RetailStore extends ChangeNotifier {
       );
       if (product.id == 0) {
         productId = await _db.into(_db.products).insert(companion);
-        final openingStock = product.stock
-            .clamp(0, double.infinity)
-            .toDouble();
+        final openingStock = product.stock.clamp(0, double.infinity).toDouble();
         if (openingStock != 0) {
           await _db
               .into(_db.inventoryMovements)
@@ -883,18 +998,13 @@ class RetailStore extends ChangeNotifier {
 
   Future<void> deleteStyle(int id) async {
     await _db.transaction(() async {
+      await (_db.update(_db.productStyles)..where((s) => s.id.equals(id)))
+          .write(const ProductStylesCompanion(isActive: Value(false)));
       await (_db.update(
-        _db.productStyles,
-      )..where((s) => s.id.equals(id))).write(
-        const ProductStylesCompanion(isActive: Value(false)),
+        _db.products,
+      )..where((p) => p.styleId.equals(id))).write(
+        const ProductsCompanion(isActive: Value(false), currentStock: Value(0)),
       );
-      await (_db.update(_db.products)..where((p) => p.styleId.equals(id)))
-          .write(
-            const ProductsCompanion(
-              isActive: Value(false),
-              currentStock: Value(0),
-            ),
-          );
       await _audit('DELETE', 'product_styles', id, 'Deactivated style $id');
     });
     await refresh();
@@ -1204,17 +1314,57 @@ class RetailStore extends ChangeNotifier {
     return supplierId;
   }
 
-  void addToCart(ProductRecord product) {
+  /// Puts one more of [product] on the bill, or refuses when the rail is
+  /// empty.
+  ///
+  /// Returns false when nothing was added, so the till can say why rather than
+  /// appearing to ignore the scan. The cap is what stops stock going negative:
+  /// before it, holding the + button on a bill for three shirts happily sold
+  /// ten and left the catalogue reading minus seven.
+  bool addToCart(ProductRecord product) {
     final existing = cart
         .where((line) => line.product.id == product.id)
         .cast<CartLine?>()
         .firstOrNull;
+    final onBill = existing?.quantity ?? 0;
+    if (onBill + 1 > product.stock) return false;
     if (existing == null) {
       cart.add(CartLine(product: product, quantity: 1));
     } else {
       existing.quantity++;
     }
     notifyListeners();
+    return true;
+  }
+
+  /// Sets a line's quantity, capped at what is on the rail. Zero or less takes
+  /// the line off the bill.
+  void setCartQuantity(CartLine line, int quantity) {
+    if (quantity <= 0) {
+      removeFromCart(line);
+      return;
+    }
+    final capped = quantity > line.product.stock
+        ? line.product.stock.floor()
+        : quantity;
+    line.quantity = capped < 1 ? 1 : capped;
+    notifyListeners();
+  }
+
+  /// Points the open bill's lines back at the freshly loaded catalogue.
+  ///
+  /// [_loadProducts] rebuilds every [ProductRecord], so without this a bill
+  /// left on the counter across a refresh keeps quoting the price and the
+  /// stock level from before it — and the price it quotes is the price the
+  /// customer is charged. A line whose product has since been deactivated
+  /// leaves the bill; it can no longer be sold.
+  void _relinkCart() {
+    if (cart.isEmpty) return;
+    final byId = {for (final product in products) product.id: product};
+    cart.removeWhere((line) => !byId.containsKey(line.product.id));
+    for (final line in cart) {
+      line.product = byId[line.product.id]!;
+    }
   }
 
   /// Total taken off the cart, however it was applied.
@@ -1425,7 +1575,21 @@ class RetailStore extends ChangeNotifier {
                 costPrice: Value(line.product.purchasePrice),
               ),
             );
-        final after = line.product.stock - line.quantity;
+        // Read the level inside the transaction rather than trusting the copy
+        // the cart line is holding: refresh() replaces every ProductRecord, so
+        // a bill that was open while a delivery landed would otherwise write
+        // back a figure from before it. Clamped at zero because a rail cannot
+        // hold minus seven shirts — an oversell is a counting error to correct,
+        // not a negative to carry forward.
+        final onHand =
+            (await (_db.select(_db.products)
+                      ..where((p) => p.id.equals(line.product.id)))
+                    .getSingleOrNull())
+                ?.currentStock ??
+            line.product.stock;
+        final after = (onHand - line.quantity)
+            .clamp(0, double.infinity)
+            .toDouble();
         await (_db.update(_db.products)
               ..where((p) => p.id.equals(line.product.id)))
             .write(ProductsCompanion(currentStock: Value(after)));
@@ -1497,6 +1661,41 @@ class RetailStore extends ChangeNotifier {
   /// year, so the counter is stored in `Settings`, reset each April, and read
   /// and written inside the sale's own transaction — two tills committing at
   /// once cannot land on the same number.
+  /// What the next bill will be numbered, without taking the number.
+  ///
+  /// The card machine is told the bill number when the amount is pushed at it,
+  /// so its slip and the shop's bill quote the same order — but that happens
+  /// before the sale is written, and a payment the customer then cancels must
+  /// not burn a number out of a sequence the GST rules require to be unbroken.
+  /// So this reads the counter and leaves it alone; [_nextInvoiceNumber]
+  /// advances it later, inside the sale's own transaction.
+  Future<String> peekNextInvoiceNumber({DateTime? at}) async {
+    final soldAt = at ?? DateTime.now();
+    final startYear = soldAt.month >= 4 ? soldAt.year : soldAt.year - 1;
+    final label = '${startYear % 100}${(startYear + 1) % 100}'.padLeft(4, '0');
+    final row = await (_db.select(
+      _db.settings,
+    )..where((s) => s.key.equals(invoiceCounterKey))).getSingleOrNull();
+    final stored = row == null
+        ? <String, dynamic>{}
+        : jsonDecode(row.valueJson) as Map<String, dynamic>;
+    final storedLabel = stored['year'] as String?;
+    final next = (storedLabel == label ? (stored['seq'] as int? ?? 0) : 0) + 1;
+    return _formatInvoiceNumber(label, next);
+  }
+
+  String _formatInvoiceNumber(String yearLabel, int sequence) {
+    final prefix = storeProfile?.receiptNumberPrefix.trim().isNotEmpty == true
+        ? storeProfile!.receiptNumberPrefix.trim()
+        : 'INV';
+    // Rule 46 caps the invoice number at 16 characters.
+    final candidate =
+        '$prefix/$yearLabel/${sequence.toString().padLeft(4, '0')}';
+    return candidate.length <= 16
+        ? candidate
+        : candidate.substring(candidate.length - 16);
+  }
+
   Future<String> _nextInvoiceNumber(DateTime soldAt) async {
     // The Indian financial year runs April to March, so anything before April
     // still belongs to the year that started the previous April.
@@ -1521,14 +1720,7 @@ class RetailStore extends ChangeNotifier {
           ),
         );
 
-    final prefix = storeProfile?.receiptNumberPrefix.trim().isNotEmpty == true
-        ? storeProfile!.receiptNumberPrefix.trim()
-        : 'INV';
-    // Rule 46 caps the invoice number at 16 characters.
-    final candidate = '$prefix/$label/${next.toString().padLeft(4, '0')}';
-    return candidate.length <= 16
-        ? candidate
-        : candidate.substring(candidate.length - 16);
+    return _formatInvoiceNumber(label, next);
   }
 
   static double _money(double value) => (value * 100).roundToDouble() / 100;
@@ -1545,6 +1737,7 @@ class RetailStore extends ChangeNotifier {
     required Map<int, PurchaseLine> lines,
     DateTime? purchasedAt,
     double paidAmount = 0,
+    String? invoiceFilePath,
   }) async {
     final entries = lines.entries.where((e) => e.value.quantity > 0).toList();
     if (entries.isEmpty) {
@@ -1569,6 +1762,13 @@ class RetailStore extends ChangeNotifier {
     }
     subtotal = _money(subtotal);
 
+    // Copied before the transaction opens: a file that cannot be read must
+    // fail the delivery outright rather than half-way through writing it.
+    final storedInvoice = await _copyPurchaseInvoice(
+      invoiceFilePath,
+      invoiceNumber.trim(),
+    );
+
     late int purchaseId;
     await _db.transaction(() async {
       purchaseId = await _db
@@ -1580,6 +1780,7 @@ class RetailStore extends ChangeNotifier {
               subtotal: Value(subtotal),
               grandTotal: Value(subtotal),
               paidAmount: Value(_money(paidAmount)),
+              invoicePath: Value(storedInvoice),
               purchasedAt: Value(at),
             ),
           );
@@ -1657,6 +1858,98 @@ class RetailStore extends ChangeNotifier {
     return purchaseId;
   }
 
+  /// Which file types a delivery's proof may be. A wholesaler either emails a
+  /// PDF or the shop photographs the paper, and both have to be accepted.
+  static const purchaseInvoiceExtensions = <String>[
+    'pdf',
+    'png',
+    'jpg',
+    'jpeg',
+    'webp',
+  ];
+
+  /// Copies the supplier's invoice into the app's own folder and returns the
+  /// stored path.
+  ///
+  /// Our own copy on purpose: the original is usually in Downloads or on a
+  /// phone's memory card, and a proof of purchase that disappears when someone
+  /// tidies their desktop is not a proof of anything. It also means the backup
+  /// zip carries it, since that walks this folder.
+  Future<String?> _copyPurchaseInvoice(
+    String? sourcePath,
+    String invoice,
+  ) async {
+    if (sourcePath == null || sourcePath.trim().isEmpty) return null;
+    final source = File(sourcePath.trim());
+    if (!source.existsSync()) {
+      throw StateError('That invoice file could not be found.');
+    }
+    final extension = p
+        .extension(source.path)
+        .replaceFirst('.', '')
+        .toLowerCase();
+    if (!purchaseInvoiceExtensions.contains(extension)) {
+      throw StateError(
+        'Attach the invoice as a PDF or an image '
+        '(${purchaseInvoiceExtensions.join(', ')}).',
+      );
+    }
+
+    final directory = await _appDataDirectory();
+    final folder = Directory(p.join(directory.path, 'purchase_invoices'));
+    if (!folder.existsSync()) folder.createSync(recursive: true);
+
+    // The invoice number goes in the filename so the folder can be read by a
+    // human, with anything a file system dislikes stripped out.
+    final safe = invoice.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '-');
+    final target = File(
+      p.join(
+        folder.path,
+        '$safe-${DateTime.now().millisecondsSinceEpoch}.$extension',
+      ),
+    );
+    await source.copy(target.path);
+    return target.path;
+  }
+
+  /// Attaches, replaces or clears the scanned invoice on a delivery already
+  /// recorded — the usual case being that the paper turned up after the stock.
+  Future<void> setPurchaseInvoiceFile(
+    int purchaseId,
+    String? sourcePath,
+  ) async {
+    final row = await (_db.select(
+      _db.purchases,
+    )..where((p) => p.id.equals(purchaseId))).getSingleOrNull();
+    if (row == null) {
+      throw StateError('That delivery could not be found.');
+    }
+    final stored = await _copyPurchaseInvoice(sourcePath, row.invoiceNumber);
+
+    // The old copy goes only once the new one is safely written.
+    final previous = row.invoicePath;
+    await (_db.update(_db.purchases)..where((p) => p.id.equals(purchaseId)))
+        .write(PurchasesCompanion(invoicePath: Value(stored)));
+    if (previous != null && previous != stored) {
+      try {
+        final file = File(previous);
+        if (file.existsSync()) file.deleteSync();
+      } on FileSystemException {
+        // An orphaned copy costs a few kilobytes; failing here would cost the
+        // attachment.
+      }
+    }
+    await _audit(
+      'UPDATE',
+      'purchases',
+      purchaseId,
+      stored == null
+          ? 'Removed the invoice file from ${row.invoiceNumber}'
+          : 'Attached an invoice file to ${row.invoiceNumber}',
+    );
+    await refresh();
+  }
+
   final purchases = <PurchaseRecord>[];
 
   Future<void> _loadPurchases() async {
@@ -1678,9 +1971,12 @@ class RetailStore extends ChangeNotifier {
           (r) => PurchaseRecord(
             id: r.id,
             invoiceNumber: r.invoiceNumber,
+            supplierId: r.supplierId,
             supplierName: supplierNames[r.supplierId] ?? 'Unknown',
             total: r.grandTotal,
             paid: r.paidAmount,
+            settled: r.settledAmount,
+            invoicePath: r.invoicePath,
             purchasedAt: r.purchasedAt,
             lineCount: counts[r.id] ?? 0,
           ),
@@ -1913,181 +2209,14 @@ class RetailStore extends ChangeNotifier {
       );
   }
 
-  // ---------------------------------------------------------- stock counts
+  // ------------------------------------------------ stock adjustments
 
-  final stocktakes = <StocktakeRecord>[];
-
-  /// The session being counted right now, if there is one.
-  StocktakeRecord? get openStocktake =>
-      stocktakes.where((s) => s.isOpen).firstOrNull;
-
-  /// Opens a count session. Only one can be open at a time — two people
-  /// counting the same rail into two sessions would each write the other off.
-  Future<StocktakeRecord> startStocktake() async {
-    if (openStocktake != null) {
-      throw StateError(
-        'A count is already open (${openStocktake!.reference}). Finish or '
-        'abandon it before starting another.',
-      );
-    }
-    final startedAt = DateTime.now();
-    final reference = await _nextStocktakeReference(startedAt);
-    final id = await _db
-        .into(_db.stocktakes)
-        .insert(
-          StocktakesCompanion.insert(
-            reference: reference,
-            userId: Value(currentUser?.id),
-            startedAt: Value(startedAt),
-          ),
-        );
-    await _audit('CREATE', 'stocktakes', id, 'Started stock count $reference');
-    await refresh();
-    return stocktakes.firstWhere((s) => s.id == id);
-  }
-
-  /// Records what was actually on the rail for one product.
+  /// Corrects what the books say is on the rail — damage, a sample taken, a
+  /// miscount spotted while tidying, or a recount of one peg.
   ///
-  /// The system figure is captured now rather than at commit time, so a sale
-  /// rung up ten minutes after this shelf was counted is not misread as
-  /// shrinkage. Counting the same product twice replaces the earlier line.
-  Future<void> recordCount({
-    required int stocktakeId,
-    required int productId,
-    required double counted,
-  }) async {
-    final session = stocktakes.where((s) => s.id == stocktakeId).firstOrNull;
-    if (session == null || !session.isOpen) {
-      throw StateError('That stock count is not open.');
-    }
-    if (counted < 0) {
-      throw StateError('A counted quantity cannot be negative.');
-    }
-    final product = products.where((p) => p.id == productId).firstOrNull;
-    if (product == null) {
-      throw StateError('That product could not be found.');
-    }
-
-    await (_db.delete(_db.stocktakeItems)..where(
-          (i) =>
-              i.stocktakeId.equals(stocktakeId) & i.productId.equals(productId),
-        ))
-        .go();
-    await _db
-        .into(_db.stocktakeItems)
-        .insert(
-          StocktakeItemsCompanion.insert(
-            stocktakeId: stocktakeId,
-            productId: productId,
-            systemQuantity: product.stock,
-            countedQuantity: counted,
-            costPrice: Value(product.purchasePrice),
-          ),
-        );
-    await refresh();
-  }
-
-  /// Removes a counted line, for a shelf counted by mistake.
-  Future<void> removeCount({
-    required int stocktakeId,
-    required int productId,
-  }) async {
-    await (_db.delete(_db.stocktakeItems)..where(
-          (i) =>
-              i.stocktakeId.equals(stocktakeId) & i.productId.equals(productId),
-        ))
-        .go();
-    await refresh();
-  }
-
-  /// Applies the count to stock and closes the session.
-  ///
-  /// Every adjusted line leaves an inventory movement behind, so the reason a
-  /// figure moved is still answerable months later. Lines that matched are left
-  /// alone — writing the same number back would bury the real changes in noise.
-  Future<StocktakeRecord> commitStocktake(
-    int stocktakeId, {
-    String notes = '',
-  }) async {
-    final session = stocktakes.where((s) => s.id == stocktakeId).firstOrNull;
-    if (session == null || !session.isOpen) {
-      throw StateError('That stock count is not open.');
-    }
-    if (session.lines.isEmpty) {
-      throw StateError('Nothing has been counted yet.');
-    }
-
-    final committedAt = DateTime.now();
-    await _db.transaction(() async {
-      for (final line in session.lines) {
-        if (line.matches) continue;
-        await (_db.update(
-          _db.products,
-        )..where((p) => p.id.equals(line.productId))).write(
-          ProductsCompanion(currentStock: Value(line.countedQuantity)),
-        );
-        await _db
-            .into(_db.inventoryMovements)
-            .insert(
-              InventoryMovementsCompanion.insert(
-                productId: line.productId,
-                movementType: 'stocktake',
-                quantity: line.variance,
-                referenceType: const Value('stocktakes'),
-                referenceId: Value(stocktakeId),
-                createdAt: Value(committedAt),
-              ),
-            );
-      }
-      await (_db.update(
-        _db.stocktakes,
-      )..where((s) => s.id.equals(stocktakeId))).write(
-        StocktakesCompanion(
-          status: Value(StocktakeStatus.committed.name),
-          committedAt: Value(committedAt),
-          notes: Value(notes.trim().isEmpty ? null : notes.trim()),
-        ),
-      );
-      await _audit(
-        'UPDATE',
-        'stocktakes',
-        stocktakeId,
-        'Applied stock count ${session.reference}: '
-            '${session.discrepancies.length} of ${session.countedLines} lines '
-            'adjusted, net ${AppFormatters.currency(session.netValue)}',
-      );
-    });
-
-    await refresh();
-    return stocktakes.firstWhere((s) => s.id == stocktakeId);
-  }
-
-  /// Walks away from a count without touching stock.
-  Future<void> abandonStocktake(int stocktakeId, {String reason = ''}) async {
-    final session = stocktakes.where((s) => s.id == stocktakeId).firstOrNull;
-    if (session == null || !session.isOpen) {
-      throw StateError('That stock count is not open.');
-    }
-    await (_db.update(
-      _db.stocktakes,
-    )..where((s) => s.id.equals(stocktakeId))).write(
-      StocktakesCompanion(
-        status: Value(StocktakeStatus.abandoned.name),
-        committedAt: Value(DateTime.now()),
-        notes: Value(reason.trim().isEmpty ? null : reason.trim()),
-      ),
-    );
-    await _audit(
-      'UPDATE',
-      'stocktakes',
-      stocktakeId,
-      'Abandoned stock count ${session.reference}',
-    );
-    await refresh();
-  }
-
-  /// A one-off correction outside a count — damage, a sample taken, a
-  /// miscount spotted on the spot.
+  /// This is the whole of stock correction now: the separate stock-count
+  /// screen is gone, because a shop that adjusts one design at a time from the
+  /// catalogue never needed a session to do it in.
   ///
   /// [delta] is the change, not the new level: -2 for two shirts written off.
   Future<void> adjustStock({
@@ -2136,60 +2265,6 @@ class RetailStore extends ChangeNotifier {
       );
     });
     await refresh();
-  }
-
-  Future<String> _nextStocktakeReference(DateTime at) async {
-    final label = '${at.year}${at.month.toString().padLeft(2, '0')}';
-    final existing = await (_db.select(
-      _db.stocktakes,
-    )..where((s) => s.reference.like('STK/$label/%'))).get();
-    var highest = 0;
-    for (final row in existing) {
-      final tail = int.tryParse(row.reference.split('/').last) ?? 0;
-      if (tail > highest) highest = tail;
-    }
-    return 'STK/$label/${(highest + 1).toString().padLeft(3, '0')}';
-  }
-
-  Future<void> _loadStocktakes() async {
-    final rows = await (_db.select(
-      _db.stocktakes,
-    )..orderBy([(s) => OrderingTerm.desc(s.startedAt)])).get();
-    final names = {
-      for (final u in await _db.select(_db.users).get()) u.id: u.fullName,
-    };
-    final items = await _db.select(_db.stocktakeItems).get();
-    final byProduct = {for (final p in products) p.id: p};
-
-    stocktakes
-      ..clear()
-      ..addAll(
-        rows.map((row) {
-          final lines = items.where((i) => i.stocktakeId == row.id).map((i) {
-            final product = byProduct[i.productId];
-            return StocktakeLine(
-              productId: i.productId,
-              description: product?.displayName ?? 'Removed product',
-              sku: product?.sku ?? '',
-              systemQuantity: i.systemQuantity,
-              countedQuantity: i.countedQuantity,
-              costPrice: i.costPrice,
-              countedAt: i.countedAt,
-            );
-          }).toList()..sort((a, b) => a.description.compareTo(b.description));
-
-          return StocktakeRecord(
-            id: row.id,
-            reference: row.reference,
-            status: StocktakeStatus.fromName(row.status),
-            startedAt: row.startedAt,
-            committedAt: row.committedAt,
-            userName: names[row.userId] ?? '',
-            notes: row.notes ?? '',
-            lines: lines,
-          );
-        }),
-      );
   }
 
   // ------------------------------------------------- payments & statements
@@ -2260,6 +2335,12 @@ class RetailStore extends ChangeNotifier {
             currentBalance: Value(_money(supplier.balance - rounded)),
           ),
         );
+        // Spread the payment over the deliveries it settles, oldest first,
+        // which is how a wholesaler applies money against an account. It goes
+        // into settledAmount rather than paidAmount so the statement can still
+        // tell "owed on the day" apart from "paid since" — putting both in one
+        // column would net the payment off the delivery *and* show it as a
+        // credit, counting it twice.
         var remaining = rounded;
         final duePurchases =
             await (_db.select(_db.purchases)
@@ -2268,14 +2349,16 @@ class RetailStore extends ChangeNotifier {
                 .get();
         for (final purchase in duePurchases) {
           if (remaining <= 0) break;
-          final outstanding = _money(purchase.grandTotal - purchase.paidAmount);
+          final outstanding = _money(
+            purchase.grandTotal - purchase.paidAmount - purchase.settledAmount,
+          );
           if (outstanding <= 0) continue;
           final applied = remaining > outstanding ? outstanding : remaining;
           await (_db.update(
             _db.purchases,
           )..where((p) => p.id.equals(purchase.id))).write(
             PurchasesCompanion(
-              paidAmount: Value(_money(purchase.paidAmount + applied)),
+              settledAmount: Value(_money(purchase.settledAmount + applied)),
             ),
           );
           remaining = _money(remaining - applied);
@@ -2766,10 +2849,7 @@ class RetailStore extends ChangeNotifier {
                     product.name,
                     if ((product.color ?? '').isNotEmpty ||
                         (product.size ?? '').isNotEmpty)
-                      '(${[
-                        product.color ?? '',
-                        product.size ?? '',
-                      ].where((v) => v.isNotEmpty).join(' / ')})',
+                      '(${[product.color ?? '', product.size ?? ''].where((v) => v.isNotEmpty).join(' / ')})',
                   ].join(' ');
             return ReturnableLine(
               saleItemId: item.id,
@@ -3316,6 +3396,29 @@ class RetailStore extends ChangeNotifier {
         : PrinterSettings.decode(row.valueJson);
   }
 
+  Future<void> _loadPosTerminalSettings() async {
+    final row = await (_db.select(
+      _db.settings,
+    )..where((s) => s.key.equals(posTerminalSettingsKey))).getSingleOrNull();
+    posTerminalSettings = row == null
+        ? const PosTerminalSettings()
+        : PosTerminalSettings.decode(row.valueJson);
+  }
+
+  Future<void> savePosTerminalSettings(PosTerminalSettings settings) async {
+    await _db
+        .into(_db.settings)
+        .insertOnConflictUpdate(
+          SettingsCompanion.insert(
+            key: posTerminalSettingsKey,
+            valueJson: settings.encode(),
+          ),
+        );
+    posTerminalSettings = settings;
+    await _audit('UPSERT', 'settings', null, 'Updated card machine settings');
+    notifyListeners();
+  }
+
   Future<void> savePrinterSettings(PrinterSettings settings) async {
     await _db
         .into(_db.settings)
@@ -3477,6 +3580,26 @@ class RetailStore extends ChangeNotifier {
     final rows = await (_db.select(
       _db.customers,
     )..where((c) => c.isDeleted.equals(false))).get();
+
+    // What each customer has spent here, all-time. Read straight off the bills
+    // so it agrees with the sales figures by construction; a stored running
+    // total would only have to be repaired the first time a bill was voided.
+    final spend = <int, double>{};
+    final bills = <int, int>{};
+    final lastSeen = <int, DateTime>{};
+    for (final sale in await _db.select(_db.sales).get()) {
+      final id = sale.customerId;
+      if (id == null) continue;
+      spend.update(
+        id,
+        (v) => v + sale.grandTotal,
+        ifAbsent: () => sale.grandTotal,
+      );
+      bills.update(id, (v) => v + 1, ifAbsent: () => 1);
+      final seen = lastSeen[id];
+      if (seen == null || sale.soldAt.isAfter(seen)) lastSeen[id] = sale.soldAt;
+    }
+
     customers
       ..clear()
       ..addAll(
@@ -3492,6 +3615,9 @@ class RetailStore extends ChangeNotifier {
             balance: c.currentBalance,
             gstin: c.gstin ?? '',
             stateCode: c.stateCode ?? '',
+            lifetimeSpend: _money(spend[c.id] ?? 0),
+            lifetimeBills: bills[c.id] ?? 0,
+            lastPurchaseAt: lastSeen[c.id],
           ),
         ),
       );
@@ -3758,22 +3884,39 @@ class PurchaseRecord {
   const PurchaseRecord({
     required this.id,
     required this.invoiceNumber,
+    required this.supplierId,
     required this.supplierName,
     required this.total,
     required this.paid,
     required this.purchasedAt,
+    this.settled = 0,
+    this.invoicePath,
     this.lineCount = 0,
   });
 
   final int id;
   final String invoiceNumber;
+  final int supplierId;
   final String supplierName;
   final double total;
+
+  /// Handed over on the day the delivery was booked.
   final double paid;
+
+  /// Settled since, out of payments recorded against the supplier's account.
+  final double settled;
+
+  /// The supplier's own invoice, scanned or photographed.
+  final String? invoicePath;
   final DateTime purchasedAt;
   final int lineCount;
 
-  double get outstanding => total - paid;
+  /// Everything that has reached the supplier for this delivery, whenever it
+  /// went. This is the figure the deliveries table shows as PAID, so paying a
+  /// balance off on the Suppliers screen is visible here too.
+  double get totalPaid => paid + settled;
+  double get outstanding => total - totalPaid;
+  bool get hasInvoiceFile => (invoicePath ?? '').trim().isNotEmpty;
 }
 
 /// Money the shop spent that was not stock.

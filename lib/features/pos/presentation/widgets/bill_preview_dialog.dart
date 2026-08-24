@@ -16,7 +16,7 @@ import '../../data/thermal_receipt.dart';
 /// The roll preview is not a second layout: it decodes the very ESC/POS bytes
 /// that would be sent, so what is on screen and what comes out of the printer
 /// cannot drift apart. Changing the paper toggle rebuilds the job at that
-/// width, which is how a 58 mm roll shows fewer columns than an 80 mm one.
+/// width, which is how a 57 mm roll shows fewer columns than an 80 mm one.
 class BillPreviewDialog extends StatefulWidget {
   const BillPreviewDialog({
     super.key,
@@ -39,13 +39,13 @@ class BillPreviewDialog extends StatefulWidget {
 
 class _BillPreviewDialogState extends State<BillPreviewDialog> {
   late InvoicePaper _paper = switch (widget.settings.paper) {
-    ThermalPaper.mm58 => InvoicePaper.roll58,
+    ThermalPaper.mm57 => InvoicePaper.roll57,
     ThermalPaper.mm80 => InvoicePaper.roll80,
   };
   bool _printing = false;
 
   ThermalPaper get _roll =>
-      _paper == InvoicePaper.roll58 ? ThermalPaper.mm58 : ThermalPaper.mm80;
+      _paper == InvoicePaper.roll57 ? ThermalPaper.mm57 : ThermalPaper.mm80;
 
   @override
   Widget build(BuildContext context) {
@@ -149,7 +149,7 @@ class _BillPreviewDialogState extends State<BillPreviewDialog> {
         ),
         SegmentedButton<InvoicePaper>(
           segments: const [
-            ButtonSegment(value: InvoicePaper.roll58, label: Text('58 mm')),
+            ButtonSegment(value: InvoicePaper.roll57, label: Text('57 mm')),
             ButtonSegment(value: InvoicePaper.roll80, label: Text('80 mm')),
             ButtonSegment(value: InvoicePaper.a4, label: Text('A4')),
           ],
@@ -173,7 +173,7 @@ class _BillPreviewDialogState extends State<BillPreviewDialog> {
     final lines = text.split('\n');
 
     return Container(
-      width: _roll == ThermalPaper.mm58 ? 250 : 340,
+      width: _roll == ThermalPaper.mm57 ? 250 : 340,
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.lg,
         vertical: AppSpacing.xxl,
@@ -197,7 +197,7 @@ class _BillPreviewDialogState extends State<BillPreviewDialog> {
               line.isEmpty ? ' ' : line,
               style: AppTypography.receipt.copyWith(
                 color: AppColors.ink,
-                fontSize: _roll == ThermalPaper.mm58 ? 9.5 : 10.5,
+                fontSize: _roll == ThermalPaper.mm57 ? 9.5 : 10.5,
               ),
             ),
           for (final graphic in graphics)

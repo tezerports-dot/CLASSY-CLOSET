@@ -39,10 +39,8 @@ class _SuppliersPageState extends State<SuppliersPage> {
         final all = _store.suppliers;
         final rows = all
             .where(
-              (s) => AppSearch.matches(
-                '${s.name} ${s.phone} ${s.email}',
-                query,
-              ),
+              (s) =>
+                  AppSearch.matches('${s.name} ${s.phone} ${s.email}', query),
             )
             .where((s) => !_owingOnly || s.balance > 0)
             .toList();

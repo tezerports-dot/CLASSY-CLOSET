@@ -7,6 +7,7 @@ import '../../../core/services/permissions.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../core/utils/search.dart';
 import '../../../core/widgets/ui_kit.dart';
 import 'widgets/label_print_dialog.dart';
@@ -374,13 +375,39 @@ class _ProductsPageState extends State<ProductsPage> {
               DataCell(Text(p.color)),
               DataCell(CodeText(p.barcode, size: 12)),
               DataCell(CodeText(p.hsnCode, size: 12)),
-              DataCell(StockPill(stock: p.stock, minimum: p.minimumStock)),
+              DataCell(
+                InkWell(
+                  onTap: _store.can(Permission.adjustStock)
+                      ? () => _adjustStock(p)
+                      : null,
+                  child: StockPill(stock: p.stock, minimum: p.minimumStock),
+                ),
+              ),
               DataCell(MoneyText(p.sellingPrice, size: 13)),
               DataCell(
-                IconButton(
-                  tooltip: 'Delete product',
-                  onPressed: _canEdit ? () => _deleteProduct(p) : null,
-                  icon: const Icon(Icons.delete_outline, size: 17),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Stock corrections live here now rather than behind a
+                    // separate stock-count screen: a shop fixes one peg at a
+                    // time, where it can see the garment it is fixing.
+                    IconButton(
+                      tooltip: 'Adjust stock',
+                      onPressed: _store.can(Permission.adjustStock)
+                          ? () => _adjustStock(p)
+                          : null,
+                      icon: const Icon(Icons.tune_rounded, size: 17),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove from the catalogue',
+                      onPressed: _canEdit ? () => _deleteProduct(p) : null,
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        size: 17,
+                        color: AppColors.danger,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -416,8 +443,52 @@ class _ProductsPageState extends State<ProductsPage> {
     );
   }
 
+  /// Removing a unit deactivates it rather than deleting the row: past bills
+  /// and deliveries point at it, and a sale whose line cannot be resolved is
+  /// worse than a catalogue with one extra entry in it. It stops appearing
+  /// anywhere a garment can be sold or counted, which is what "remove" means
+  /// on the shop floor.
   Future<void> _deleteProduct(ProductRecord product) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove this unit?'),
+        content: Text(
+          '${product.displayName} will come off the rail and out of the till, '
+          'and its stock will go to zero. Bills it already appears on keep '
+          'showing it.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Remove it'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     await _store.deleteProduct(product.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('${product.displayName} removed.')));
+  }
+
+  /// Corrects what the books say is on the rail, with a reason recorded
+  /// against it.
+  Future<void> _adjustStock(ProductRecord product) async {
+    final message = await showDialog<String>(
+      context: context,
+      builder: (_) => _StockAdjustDialog(store: _store, product: product),
+    );
+    if (message == null || !mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _confirmDeleteStyle(StyleRecord style) async {
@@ -443,6 +514,163 @@ class _ProductsPageState extends State<ProductsPage> {
     );
     if (confirmed == true) {
       await _store.deleteStyle(style.id);
+    }
+  }
+}
+
+/// Adds stock on or takes it off one unit, with a reason kept in the audit
+/// trail.
+///
+/// This replaces the stock-count screen. A count session made sense for a shop
+/// that shuts for an evening and walks the rails with a clipboard; this shop
+/// spots a damaged shirt, writes one off, and gets on with serving. The
+/// arithmetic is shown before it is applied so nobody has to guess which
+/// direction a minus sign was going to go.
+class _StockAdjustDialog extends StatefulWidget {
+  const _StockAdjustDialog({required this.store, required this.product});
+
+  final RetailStore store;
+  final ProductRecord product;
+
+  @override
+  State<_StockAdjustDialog> createState() => _StockAdjustDialogState();
+}
+
+class _StockAdjustDialogState extends State<_StockAdjustDialog> {
+  final _quantity = TextEditingController(text: '1');
+  final _reason = TextEditingController();
+  bool _adding = false;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _quantity.dispose();
+    _reason.dispose();
+    super.dispose();
+  }
+
+  double get _amount => (double.tryParse(_quantity.text.trim()) ?? 0).abs();
+  double get _delta => _adding ? _amount : -_amount;
+  double get _after => widget.product.stock + _delta;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final product = widget.product;
+    return AlertDialog(
+      title: Text('Adjust stock — ${product.displayName}'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'The books say there are '
+              '${AppFormatters.quantity(product.stock)} on the rail.',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(
+                  value: false,
+                  label: Text('Take off'),
+                  icon: Icon(Icons.remove_rounded, size: 15),
+                ),
+                ButtonSegment(
+                  value: true,
+                  label: Text('Add on'),
+                  icon: Icon(Icons.add_rounded, size: 15),
+                ),
+              ],
+              selected: {_adding},
+              showSelectedIcon: false,
+              onSelectionChanged: (s) => setState(() => _adding = s.single),
+            ),
+            const SizedBox(height: AppSpacing.base),
+            TextField(
+              controller: _quantity,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(labelText: 'How many'),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: AppSpacing.base),
+            TextField(
+              controller: _reason,
+              decoration: const InputDecoration(
+                labelText: 'Why',
+                hintText: 'Damaged, sample taken, recounted the peg…',
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: AppSpacing.base),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppSpacing.base),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceAlt,
+                borderRadius: AppRadii.inputBorder,
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Text(
+                _amount <= 0
+                    ? 'Enter how many to add or take off.'
+                    : 'The rail will read '
+                          '${AppFormatters.quantity(_after < 0 ? 0 : _after)} '
+                          'after this.',
+                style: theme.textTheme.bodyMedium,
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Text(_error!, style: const TextStyle(color: AppColors.danger)),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _amount <= 0 || _reason.text.trim().isEmpty || _saving
+              ? null
+              : _apply,
+          child: const Text('Apply'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _apply() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.store.adjustStock(
+        productId: widget.product.id,
+        delta: _delta,
+        reason: _reason.text,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop(
+        '${widget.product.displayName}: '
+        '${_adding ? '+' : '-'}${AppFormatters.quantity(_amount)}, '
+        'now ${AppFormatters.quantity(_after)}.',
+      );
+    } on StateError catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = e.message;
+      });
     }
   }
 }

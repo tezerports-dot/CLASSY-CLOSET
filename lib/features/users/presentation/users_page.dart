@@ -76,10 +76,11 @@ class UsersPage extends StatelessWidget {
 
               const SizedBox(height: AppSpacing.xl),
               SectionCard(
-                title: 'What each role can do',
+                title: 'What each role starts with',
                 subtitle:
-                    'Roles are fixed so they cannot be edited into something '
-                    'unsafe. Pick the one that matches the job.',
+                    'A role is the starting point, not a cage — open anyone '
+                    'above and tick or untick any permission for them '
+                    'specifically.',
                 child: AppTable(
                   minWidth: 720,
                   columns: [
@@ -167,6 +168,10 @@ class UsersPage extends StatelessWidget {
                     ),
                     const SizedBox(width: AppSpacing.sm),
                     StatusPill(user.role.label, tone: PillTone.strong),
+                    if (user.hasCustomPermissions) ...[
+                      const SizedBox(width: AppSpacing.xs),
+                      const StatusPill('Custom', tone: PillTone.caution),
+                    ],
                     if (!user.isActive) ...[
                       const SizedBox(width: AppSpacing.xs),
                       const StatusPill('Disabled', tone: PillTone.bad),
@@ -182,7 +187,8 @@ class UsersPage extends StatelessWidget {
                   children: [
                     CodeText(user.username, size: 11.5),
                     Text(
-                      '  ·  ${user.role.description}',
+                      '  ·  '
+                      '${user.hasCustomPermissions ? '${user.permissions.length} permission${user.permissions.length == 1 ? '' : 's'}, set by hand' : user.role.description}',
                       style: AppTypography.microLabel.copyWith(
                         color: AppColors.inkFaint,
                       ),
@@ -235,5 +241,5 @@ String _permissionLabel(Permission permission) => switch (permission) {
   Permission.recordPurchases => 'Receive stock from a supplier',
   Permission.recordExpenses => 'Record what the shop spent',
   Permission.recordPayments => 'Settle a customer or supplier balance',
-  Permission.adjustStock => 'Count stock and write differences off',
+  Permission.adjustStock => 'Adjust stock levels',
 };

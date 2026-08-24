@@ -105,18 +105,23 @@ class BackupService {
 
   Future<BackupResult> _writeAutomaticZipBackup() async {
     final folder = await automaticZipDirectory();
-    final result = await backupTo(p.join(folder.path, defaultBackupFileName()));
+    final result = await backupTo(p.join(folder.path, suggestedFileName()));
     if (result.success) await _pruneAutomaticZipBackups(folder);
     return result;
   }
 
   Future<void> _pruneAutomaticZipBackups(Directory folder) async {
-    final backups = folder
-        .listSync()
-        .whereType<File>()
-        .where((file) => p.basename(file.path).startsWith('retailpro-backup-'))
-        .toList()
-      ..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+    final backups =
+        folder
+            .listSync()
+            .whereType<File>()
+            .where(
+              (file) => p.basename(file.path).startsWith('retailpro-backup-'),
+            )
+            .toList()
+          ..sort(
+            (a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()),
+          );
 
     for (final file in backups.skip(30)) {
       try {

@@ -6,7 +6,11 @@ class PosRepository {
   final RetailStore _store;
 
   List<CartLine> get cart => List.unmodifiable(_store.cart);
-  void addToCart(ProductRecord product) => _store.addToCart(product);
+
+  /// False when the rail has nothing left to add, so the till can say so.
+  bool addToCart(ProductRecord product) => _store.addToCart(product);
+  void setCartQuantity(CartLine line, int quantity) =>
+      _store.setCartQuantity(line, quantity);
   void removeFromCart(CartLine line) => _store.removeFromCart(line);
   Future<SaleRecord> checkout({
     CustomerRecord? customer,
