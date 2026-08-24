@@ -455,15 +455,11 @@ class _PosPageState extends State<PosPage> {
   /// panel. Everything here has to stay on screen at 768px high.
   Widget _pinnedFooter(BuildContext context, double total) {
     final theme = Theme.of(context);
-    var taxable = 0.0, cgst = 0.0, sgst = 0.0, igst = 0.0;
-    for (final line in _store.cart) {
-      final tax = _store.lineTaxFor(line, customer: _selectedCustomer);
-      taxable += tax.taxableValue;
-      cgst += tax.cgst;
-      sgst += tax.sgst;
-      igst += tax.igst;
-    }
-    final discount = _store.cartDiscountTotal;
+    // One pass over the cart — the totals object carries the subtotal, the
+    // discount, and the tax already computed on the discounted net, so the
+    // rows below only render numbers.
+    final totals = _store.cartTotals(customer: _selectedCustomer);
+    final discount = totals.discountTotal;
 
     return Container(
       decoration: const BoxDecoration(
@@ -480,11 +476,15 @@ class _PosPageState extends State<PosPage> {
             _discountField(context, discount),
             const SizedBox(height: AppSpacing.base),
           ],
-          _amountRow('Taxable value', taxable),
+          // Subtotal → discount → taxable → GST → total. Same shape as the
+          // printed bill so the customer at the counter can follow along.
+          _amountRow('Subtotal', totals.gross),
           if (discount > 0) _amountRow('Discount', discount, signed: true),
-          if (cgst > 0) _amountRow('CGST', cgst),
-          if (sgst > 0) _amountRow('SGST', sgst),
-          if (igst > 0) _amountRow('IGST', igst),
+          if (totals.cgst > 0 || totals.sgst > 0 || totals.igst > 0)
+            _amountRow('Taxable value', totals.taxable),
+          if (totals.cgst > 0) _amountRow('CGST', totals.cgst),
+          if (totals.sgst > 0) _amountRow('SGST', totals.sgst),
+          if (totals.igst > 0) _amountRow('IGST', totals.igst),
           const Padding(
             padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
             child: _DashedRule(),
