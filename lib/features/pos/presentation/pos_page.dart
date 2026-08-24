@@ -286,8 +286,8 @@ class _PosPageState extends State<PosPage> {
       style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
       decoration: InputDecoration(
         hintText: 'Scan a barcode, or type a name, SKU or size…',
-        prefixIcon: const Icon(Icons.barcode_reader, color: AppColors.goldDeep),
-        enabledBorder: const OutlineInputBorder(
+        prefixIcon: Icon(Icons.barcode_reader, color: AppColors.goldDeep),
+        enabledBorder: OutlineInputBorder(
           borderRadius: AppRadii.inputBorder,
           borderSide: BorderSide(color: AppColors.gold, width: 1.4),
         ),
@@ -558,7 +558,7 @@ class _PosPageState extends State<PosPage> {
     ),
     child: Row(
       children: [
-        const Icon(Icons.sell_outlined, size: 15, color: AppColors.goldDeep),
+        Icon(Icons.sell_outlined, size: 15, color: AppColors.goldDeep),
         const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: Text(
@@ -588,7 +588,7 @@ class _PosPageState extends State<PosPage> {
                 horizontal: AppSpacing.sm,
                 vertical: AppSpacing.sm,
               ),
-              enabledBorder: const OutlineInputBorder(
+              enabledBorder: OutlineInputBorder(
                 borderRadius: AppRadii.inputBorder,
                 borderSide: BorderSide(color: AppColors.goldWashBorder),
               ),
@@ -1516,13 +1516,13 @@ class _ProductTile extends StatelessWidget {
                             horizontal: 7,
                             vertical: 2,
                           ),
-                          decoration: const BoxDecoration(
+                          decoration: BoxDecoration(
                             color: AppColors.goldWash,
                             borderRadius: AppRadii.pillBorder,
                           ),
                           child: Text(
                             product.variantLabel,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 10.5,
                               fontWeight: FontWeight.w600,
                               color: AppColors.goldDeep,

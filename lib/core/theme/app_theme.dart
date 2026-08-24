@@ -13,7 +13,7 @@ class AppTheme {
   const AppTheme._();
 
   static ThemeData light() {
-    const colorScheme = ColorScheme(
+    final colorScheme = ColorScheme(
       brightness: Brightness.light,
       primary: AppColors.brand,
       onPrimary: AppColors.brandInk,
@@ -39,8 +39,8 @@ class AppTheme {
       onSurfaceVariant: AppColors.inkSoft,
       outline: AppColors.border,
       outlineVariant: AppColors.borderSoft,
-      shadow: Color(0x1A1A1712),
-      scrim: Color(0x99000000),
+      shadow: const Color(0x1A1A1712),
+      scrim: const Color(0x99000000),
       inverseSurface: AppColors.brand,
       onInverseSurface: AppColors.brandInkSoft,
       inversePrimary: AppColors.brandInk,
@@ -108,7 +108,7 @@ class AppTheme {
           borderSide: BorderSide(color: AppColors.border),
         ),
         // Gold on focus, everywhere, so the caret is never in doubt.
-        focusedBorder: const OutlineInputBorder(
+        focusedBorder: OutlineInputBorder(
           borderRadius: AppRadii.inputBorder,
           borderSide: BorderSide(color: AppColors.gold, width: 1.6),
         ),
@@ -272,13 +272,13 @@ class AppTheme {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
       ),
 
-      progressIndicatorTheme: const ProgressIndicatorThemeData(
+      progressIndicatorTheme: ProgressIndicatorThemeData(
         color: AppColors.gold,
         linearTrackColor: AppColors.border,
       ),
 
       tooltipTheme: TooltipThemeData(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppColors.brand,
           borderRadius: AppRadii.pillBorder,
         ),

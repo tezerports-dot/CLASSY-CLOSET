@@ -406,7 +406,7 @@ class PrimaryButton extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (busy)
-          const SizedBox.square(
+          SizedBox.square(
             dimension: 15,
             child: CircularProgressIndicator(
               strokeWidth: 2,
@@ -486,7 +486,7 @@ class EmptyState extends StatelessWidget {
             Container(
               width: 52,
               height: 52,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: AppColors.goldWash,
                 shape: BoxShape.circle,
               ),
@@ -621,7 +621,7 @@ class OfflineNotice extends StatelessWidget {
     ),
     child: Row(
       children: [
-        const Icon(Icons.cloud_off, size: 17, color: AppColors.goldDeep),
+        Icon(Icons.cloud_off, size: 17, color: AppColors.goldDeep),
         const SizedBox(width: AppSpacing.md),
         Expanded(
           child: Text(

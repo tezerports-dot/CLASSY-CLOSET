@@ -189,7 +189,12 @@ class _BillPreviewDialogState extends State<BillPreviewDialog> {
           // The head of the bill is drawn, so it is drawn here too rather than
           // shown as an empty gap.
           if (widget.settings.printLogoOnReceipt && widget.logo != null) ...[
-            const Center(child: BrandMark(size: 46, color: AppColors.ink)),
+            Center(
+              child: BrandMark(
+                size: 46,
+                path: widget.invoice.profile?.brandImagePath,
+              ),
+            ),
             const SizedBox(height: AppSpacing.sm),
           ],
           for (final line in lines)

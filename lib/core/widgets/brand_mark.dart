@@ -5,164 +5,111 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
 
-/// The shop's identity, drawn rather than photographed.
+/// The shop's identity, on any surface.
 ///
-/// The supplied artwork is a JPEG on a solid black disc. Pasting it onto a
-/// dark rail leaves a visible square edge, and onto a light card a heavy black
-/// coin — so the mark is redrawn here as a gold ring with the hanger and the
-/// initials. It scales cleanly, tints to whatever ground it sits on, and adds
-/// nothing to the install size.
+/// The old build carried a hand-drawn hanger. It scaled cleanly, but it was
+/// not the shop's mark — the mark is the round black-and-gold artwork on the
+/// sign and the bag. This widget shows that artwork instead, taken from the
+/// path the shop set under Settings when there is one, and from the bundled
+/// asset otherwise.
 ///
-/// [ClassyCloasetPhotoMark] shows the real artwork where a photograph belongs:
-/// the login panel and the setup screen.
+/// The bundled asset is used as a proper fallback for two reasons: a first
+/// install with no path set, and a saved path pointing at a file that has
+/// gone. A missing image must never take a screen down with it.
 class BrandMark extends StatelessWidget {
-  const BrandMark({
-    super.key,
-    this.size = 34,
-    this.color = AppColors.gold,
-    this.ringed = true,
-  });
+  const BrandMark({super.key, this.size = 34, this.path, this.ringed = true});
 
   final double size;
-  final Color color;
 
-  /// The circle around the mark. Dropped at small sizes where it closes up.
+  /// The shop's uploaded brand image. Null falls back to the bundled artwork.
+  final String? path;
+
+  /// Kept for callers that previously had a ring around the painted mark;
+  /// the image is already a round disc so it clips to a circle either way,
+  /// and the flag now has no visual effect. Left as a named parameter so no
+  /// caller had to change on the rebrand.
   final bool ringed;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox.square(
-      dimension: size,
-      child: CustomPaint(
-        painter: _HangerPainter(color: color, ringed: ringed),
+    final chosen = path;
+    final file = (chosen != null && chosen.trim().isNotEmpty)
+        ? File(chosen)
+        : null;
+    final useFile = file != null && file.existsSync();
+    return ClipOval(
+      child: useFile
+          ? Image.file(
+              file,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => _bundled(size),
+            )
+          : _bundled(size),
+    );
+  }
+
+  static Image _bundled(double size) => Image.asset(
+    'assets/brand/classy-closet-mark.jpg',
+    width: size,
+    height: size,
+    fit: BoxFit.cover,
+    // A missing asset would leave a broken frame on the login card, so we
+    // draw a plain warm-black square with the accent as a fallback ring.
+    errorBuilder: (_, _, _) => Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: AppColors.brand,
+        shape: BoxShape.circle,
+        border: Border.all(color: AppColors.gold, width: 2),
       ),
-    );
-  }
+    ),
+  );
 }
 
-class _HangerPainter extends CustomPainter {
-  const _HangerPainter({required this.color, required this.ringed});
-
-  final Color color;
-  final bool ringed;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final s = size.shortestSide;
-    final stroke = (s * 0.055).clamp(1.0, 3.0);
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    if (ringed) {
-      canvas.drawCircle(
-        Offset(s / 2, s / 2),
-        s / 2 - stroke,
-        paint..strokeWidth = stroke,
-      );
-    }
-
-    // The hanger: a hook, then the shoulders sloping down to the bar.
-    final inset = ringed ? s * 0.22 : s * 0.06;
-    final top = ringed ? s * 0.30 : s * 0.16;
-    final apex = Offset(s / 2, top);
-    final barY = ringed ? s * 0.56 : s * 0.62;
-
-    final hook = Path()
-      ..moveTo(s / 2, top)
-      ..cubicTo(
-        s / 2,
-        top - s * 0.10,
-        s / 2 + s * 0.075,
-        top - s * 0.13,
-        s / 2 + s * 0.05,
-        top - s * 0.055,
-      );
-    canvas.drawPath(hook, paint);
-
-    final shoulders = Path()
-      ..moveTo(inset, barY)
-      ..lineTo(apex.dx, apex.dy + s * 0.045)
-      ..lineTo(s - inset, barY);
-    canvas.drawPath(shoulders, paint);
-
-    canvas.drawLine(
-      Offset(inset + s * 0.015, barY),
-      Offset(s - inset - s * 0.015, barY),
-      paint..strokeWidth = stroke * 0.9,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_HangerPainter old) =>
-      old.color != color || old.ringed != ringed;
-}
-
-/// The supplied artwork, for the two places a real photograph belongs.
+/// The larger photograph-scale version of the mark used on the login and the
+/// first-run setup screens.
 ///
-/// A shop that has uploaded its own logo under Settings gets that instead —
-/// this build is deployed to more than one shop, and the second one is not
-/// Classy Closet.
+/// Kept as a thin alias over [BrandMark] so the two never drift out of step
+/// when the shop rebrands — they are the same image at different sizes.
 class ClassyClosetPhotoMark extends StatelessWidget {
   const ClassyClosetPhotoMark({super.key, this.size = 120, this.path});
 
   final double size;
-
-  /// A logo file chosen in the store profile. Falls back to the bundled mark.
   final String? path;
 
   @override
-  Widget build(BuildContext context) {
-    final bundled = Image.asset(
-      'assets/brand/classy-closet-mark.jpg',
-      width: size,
-      height: size,
-      fit: BoxFit.cover,
-      // A missing asset must never take a screen down with it.
-      errorBuilder: (_, _, _) => BrandMark(size: size),
-    );
-    final chosen = path;
-    return ClipOval(
-      child: chosen == null || !File(chosen).existsSync()
-          ? bundled
-          : Image.file(
-              File(chosen),
-              width: size,
-              height: size,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => bundled,
-            ),
-    );
-  }
+  Widget build(BuildContext context) => BrandMark(size: size, path: path);
 }
 
-/// The wordmark: name, then the two lines of the shop's own strapline.
+/// The wordmark: name, then the subtitle line from the store profile.
 ///
-/// The tagline is deliberately two lines. The artwork already says "Men's
-/// Fashion Store"; squeezing "Look Classy, Feel Content" onto the same line
-/// would set it at a size nobody reads.
+/// The subtitle is a field on the profile so a second shop reads its own line
+/// here — "MEN'S FASHION STORE" is the seed, not a fixed piece of text.
 class BrandWordmark extends StatelessWidget {
   const BrandWordmark({
     super.key,
     this.name = 'CLASSY CLOSET',
     this.size = 15,
-    this.color = AppColors.brandInk,
-    this.subColor = AppColors.brandInkFaint,
-    this.subtitle = "MEN'S FASHION STORE",
+    this.color = AppColors.ink,
+    this.subColor = AppColors.inkFaint,
+    this.subtitle,
     this.tagline,
     this.align = CrossAxisAlignment.start,
   });
 
-  /// The shop's own name. The same build runs in more than one shop, so this
-  /// comes from the store profile wherever the profile has been loaded.
+  /// The shop's own name. Comes from the store profile wherever the profile
+  /// has been loaded.
   final String name;
 
   final double size;
   final Color color;
   final Color subColor;
+
+  /// The small line under the shop name. Null omits it — used in tight places
+  /// like the rail where the name alone is enough.
   final String? subtitle;
 
   /// The second strapline line. Left off in tight places like the rail.
@@ -180,29 +127,47 @@ class BrandWordmark extends StatelessWidget {
           textAlign: align == CrossAxisAlignment.center
               ? TextAlign.center
               : TextAlign.start,
-          style: AppTypography.wordmark.copyWith(fontSize: size, color: color),
+          style: TextStyle(
+            fontFamily: AppTypography.display,
+            fontSize: size,
+            fontWeight: FontWeight.w700,
+            color: color,
+            letterSpacing: 2.0,
+          ),
         ),
-        if (subtitle != null) ...[
-          SizedBox(height: size * 0.22),
-          Text(
-            subtitle!,
-            style: AppTypography.wordmarkSub.copyWith(
-              color: subColor,
-              fontSize: size * 0.62,
+        if (subtitle != null && subtitle!.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              subtitle!,
+              textAlign: align == CrossAxisAlignment.center
+                  ? TextAlign.center
+                  : TextAlign.start,
+              style: TextStyle(
+                fontFamily: AppTypography.sans,
+                fontSize: size * 0.52,
+                fontWeight: FontWeight.w600,
+                color: subColor,
+                letterSpacing: 1.6,
+              ),
             ),
           ),
-        ],
-        if (tagline != null) ...[
-          SizedBox(height: size * 0.16),
-          Text(
-            tagline!,
-            style: AppTypography.wordmarkSub.copyWith(
-              color: subColor,
-              fontSize: size * 0.6,
-              letterSpacing: 1.4,
+        if (tagline != null && tagline!.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Text(
+              tagline!,
+              textAlign: align == CrossAxisAlignment.center
+                  ? TextAlign.center
+                  : TextAlign.start,
+              style: TextStyle(
+                fontFamily: AppTypography.sans,
+                fontSize: size * 0.5,
+                fontStyle: FontStyle.italic,
+                color: subColor,
+              ),
             ),
           ),
-        ],
       ],
     );
   }

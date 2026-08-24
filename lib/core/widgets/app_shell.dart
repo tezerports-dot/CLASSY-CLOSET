@@ -160,16 +160,24 @@ class _Rail extends StatelessWidget {
     ),
     child: Row(
       children: [
-        const BrandMark(size: 34),
+        BrandMark(size: 34, path: store.storeProfile?.brandImagePath),
         if (!iconOnly) ...[
           const SizedBox(width: AppSpacing.md),
-          const Expanded(child: BrandWordmark(size: 15)),
+          Expanded(
+            child: BrandWordmark(
+              name: store.storeProfile?.storeName ?? 'CLASSY CLOSET',
+              subtitle: store.storeProfile?.subtitle,
+              size: 15,
+              color: AppColors.brandInk,
+              subColor: AppColors.brandInkFaint,
+            ),
+          ),
           if (onToggle != null)
             IconButton(
               tooltip: 'Collapse the menu',
               onPressed: onToggle,
               visualDensity: VisualDensity.compact,
-              icon: const Icon(
+              icon: Icon(
                 Icons.chevron_left,
                 size: 18,
                 color: AppColors.brandInkFaint,
@@ -196,7 +204,7 @@ class _Rail extends StatelessWidget {
               (user?.name.trim().isNotEmpty ?? false)
                   ? user!.name.trim().characters.first.toUpperCase()
                   : '?',
-              style: const TextStyle(
+              style: TextStyle(
                 color: AppColors.brandInk,
                 fontWeight: FontWeight.w600,
                 fontSize: 13,
@@ -213,7 +221,7 @@ class _Rail extends StatelessWidget {
                   Text(
                     user?.name ?? 'Not signed in',
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: AppColors.brandInkSoft,
                       fontSize: 12.5,
                       fontWeight: FontWeight.w600,
@@ -221,7 +229,7 @@ class _Rail extends StatelessWidget {
                   ),
                   Text(
                     user?.role.label ?? '',
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: AppColors.brandInkFaint,
                       fontSize: 11,
                     ),
@@ -237,11 +245,7 @@ class _Rail extends StatelessWidget {
               if (context.mounted) context.go('/login');
             },
             visualDensity: VisualDensity.compact,
-            icon: const Icon(
-              Icons.logout,
-              size: 17,
-              color: AppColors.brandInkFaint,
-            ),
+            icon: Icon(Icons.logout, size: 17, color: AppColors.brandInkFaint),
           ),
         ],
       ),
@@ -344,7 +348,7 @@ class _RailItemState extends State<_RailItem> {
                   // The gold bar is what says "you are here" at a glance from
                   // across the counter.
                   border: selected
-                      ? const Border(
+                      ? Border(
                           left: BorderSide(color: AppColors.gold, width: 3),
                         )
                       : null,
