@@ -125,6 +125,32 @@ Future<Uint8List> buildLabelSheet({
   return document.save();
 }
 
+/// Renders a single label at its true die-cut size, for the preview panel.
+///
+/// Built from the same [_label] the printed sheet uses, so what the dialog
+/// shows is what comes out of the printer — a preview drawn separately would
+/// drift from the print the first time either changed, and drift is exactly
+/// what makes somebody believe a fix never landed.
+Future<Uint8List> buildLabelPreview({
+  required ProductRecord product,
+  required LabelSheet sheet,
+  required StoreProfile? profile,
+  LabelOptions options = const LabelOptions(),
+}) async {
+  final document = pw.Document();
+  document.addPage(
+    pw.Page(
+      pageFormat: PdfPageFormat(
+        sheet.widthMm * PdfPageFormat.mm,
+        sheet.heightMm * PdfPageFormat.mm,
+      ),
+      margin: const pw.EdgeInsets.all(2),
+      build: (context) => _label(product, profile, options, sheet),
+    ),
+  );
+  return document.save();
+}
+
 pw.Widget _label(
   ProductRecord product,
   StoreProfile? profile,

@@ -5,6 +5,7 @@ import '../../../app/di/injection.dart';
 import '../../../core/services/backup_service.dart';
 import '../../../core/services/permissions.dart';
 import '../../../core/services/printer_service.dart';
+import '../../../core/app_build.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/ui_kit.dart';
@@ -169,6 +170,22 @@ class _SettingsPageState extends State<SettingsPage> {
                   child: BackupPanel(service: _backup),
                 ),
               },
+
+              // The build stamp, on every tab. When a fix is reported as
+              // missing this is the first thing to read back: a counter still
+              // running an older installer looks exactly like a fix that never
+              // worked, and there was previously no way to tell the two apart.
+              const SizedBox(height: AppSpacing.xl),
+              Center(
+                child: SelectableText(
+                  'Classy Closet ${AppBuild.label}',
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: AppColors.inkFaint,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ),
             ],
           ),
         );

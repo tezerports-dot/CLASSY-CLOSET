@@ -2,6 +2,8 @@ import 'package:classy_closet/core/services/retail_store.dart';
 import 'package:classy_closet/features/products/data/label_document.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/pdf_text.dart';
+
 void main() {
   const profile = StoreProfile(storeName: 'Classy Closet', currencySymbol: '₹');
 
@@ -120,6 +122,108 @@ void main() {
     );
 
     expect(bytes, isNotEmpty);
+  });
+
+  group('what is actually printed on the tag', () {
+    // These read the words back out of the PDF. The tests above only ever
+    // asserted that bytes came out, which is why "the label never changed"
+    // could be true three releases running with every test passing.
+
+    test(
+      'carries the name, the size and the number — and nothing else',
+      () async {
+        final bytes = await buildLabelSheet(
+          requests: [
+            LabelRequest(
+              product: unit('KRT-M', barcode: '890123456789'),
+              copies: 1,
+            ),
+          ],
+          sheet: LabelSheet.a4_65,
+          profile: profile,
+        );
+        final text = pdfText(bytes);
+
+        expect(
+          text,
+          contains('890123456789'),
+          reason: 'the number under the bars',
+        );
+        expect(text, contains('Cotton'), reason: 'the garment name');
+        expect(text, contains('Kurta'));
+        expect(text, contains('M'), reason: 'the size');
+
+        // The three things and no fourth. The shop name and the MRP used to
+        // crowd the tag and were what pushed the number off the bottom of it.
+        expect(text, isNot(contains('Classy Closet')));
+        expect(text, isNot(contains('899')));
+        expect(text.toUpperCase(), isNot(contains('MRP')));
+      },
+    );
+
+    test('the number survives every stock size', () async {
+      for (final sheet in LabelSheet.values) {
+        final bytes = await buildLabelSheet(
+          requests: [
+            LabelRequest(
+              product: unit('KRT-M', barcode: '890123456789'),
+              copies: 1,
+            ),
+          ],
+          sheet: sheet,
+          profile: profile,
+        );
+        expect(
+          pdfText(bytes),
+          contains('890123456789'),
+          reason:
+              '${sheet.label}: an overflowing column drops its last child, and '
+              'the last child is the number',
+        );
+      }
+    });
+
+    test('a unit with no barcode prints its SKU as the number', () async {
+      final bytes = await buildLabelSheet(
+        requests: [LabelRequest(product: unit('SKU-ONLY'), copies: 1)],
+        sheet: LabelSheet.a4_24,
+        profile: profile,
+      );
+      expect(pdfText(bytes), contains('SKU-ONLY'));
+    });
+
+    test('switching the name off leaves the number', () async {
+      final bytes = await buildLabelSheet(
+        requests: [
+          LabelRequest(
+            product: unit('KRT-M', barcode: '890123456789'),
+            copies: 1,
+          ),
+        ],
+        sheet: LabelSheet.a4_24,
+        profile: profile,
+        options: const LabelOptions(showProductName: false, showVariant: false),
+      );
+      final text = pdfText(bytes);
+
+      expect(text, contains('890123456789'));
+      expect(text, isNot(contains('Cotton')));
+    });
+
+    test('the dialog preview is the same label as the print', () async {
+      // The panel in the print dialog renders this. If it could drift from
+      // the printed sheet it would be worse than no preview at all.
+      final preview = await buildLabelPreview(
+        product: unit('KRT-M', barcode: '890123456789'),
+        sheet: LabelSheet.a4_65,
+        profile: profile,
+      );
+      final text = pdfText(preview);
+
+      expect(text, contains('890123456789'));
+      expect(text, contains('Kurta'));
+      expect(text, isNot(contains('Classy Closet')));
+    });
   });
 
   test('no store profile is handled', () async {

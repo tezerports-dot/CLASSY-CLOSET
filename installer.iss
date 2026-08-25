@@ -2,7 +2,7 @@
 ; Build with: iscc installer.iss
 
 #define AppName        "Classy Closet"
-#define AppVersion     "1.0.0"
+#define AppVersion     "1.1.0"
 #define AppPublisher   "Classy Closet"
 #define AppExeName     "classy_closet.exe"
 #define BuildDir       "build\windows\x64\runner\Release"

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/di/injection.dart';
 import '../../../core/services/retail_store.dart';
+import '../../../core/widgets/global_search_target.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/search.dart';
@@ -22,21 +23,28 @@ class SalesPage extends StatefulWidget {
   State<SalesPage> createState() => _SalesPageState();
 }
 
-class _SalesPageState extends State<SalesPage> {
+class _SalesPageState extends State<SalesPage>
+    with GlobalSearchTarget<SalesPage> {
   final _store = getIt<RetailStore>();
   late final TextEditingController _search;
 
   @override
+  RetailStore get searchStore => _store;
+  @override
+  String get searchRoute => '/sales';
+  @override
+  TextEditingController get searchField => _search;
+
+  @override
   void initState() {
     super.initState();
-    // A search typed into the top-bar global box lands on the receipt list
-    // pre-populated, then clears so a back-and-forth navigation does not
-    // keep re-seeding it.
-    _search = TextEditingController(text: _store.consumePendingGlobalQuery());
+    _search = TextEditingController();
+    beginGlobalSearchHandoff();
   }
 
   @override
   void dispose() {
+    endGlobalSearchHandoff();
     _search.dispose();
     super.dispose();
   }

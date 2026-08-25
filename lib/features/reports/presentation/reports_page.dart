@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../../app/di/injection.dart';
 import '../../../core/services/reports.dart';
 import '../../../core/services/retail_store.dart';
+import '../../../core/widgets/global_search_target.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/search.dart';
@@ -20,7 +21,8 @@ class ReportsPage extends StatefulWidget {
   State<ReportsPage> createState() => _ReportsPageState();
 }
 
-class _ReportsPageState extends State<ReportsPage> {
+class _ReportsPageState extends State<ReportsPage>
+    with GlobalSearchTarget<ReportsPage> {
   final _store = getIt<RetailStore>();
 
   DateRange _range = DateRange.thisMonth();
@@ -36,16 +38,23 @@ class _ReportsPageState extends State<ReportsPage> {
   late final TextEditingController _registerSearch;
 
   @override
+  RetailStore get searchStore => _store;
+  @override
+  String get searchRoute => '/reports';
+  @override
+  TextEditingController get searchField => _registerSearch;
+
+  @override
   void initState() {
     super.initState();
-    _registerSearch = TextEditingController(
-      text: _store.consumePendingGlobalQuery(),
-    );
+    _registerSearch = TextEditingController();
+    beginGlobalSearchHandoff();
     _load();
   }
 
   @override
   void dispose() {
+    endGlobalSearchHandoff();
     _registerSearch.dispose();
     super.dispose();
   }

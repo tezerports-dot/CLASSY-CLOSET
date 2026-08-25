@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/di/injection.dart';
 import '../../../core/services/permissions.dart';
 import '../../../core/services/retail_store.dart';
+import '../../../core/widgets/global_search_target.dart';
 import '../../../core/services/statements.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/search.dart';
@@ -37,9 +38,17 @@ enum _Sort {
   final String label;
 }
 
-class _CustomersPageState extends State<CustomersPage> {
+class _CustomersPageState extends State<CustomersPage>
+    with GlobalSearchTarget<CustomersPage> {
   final _store = getIt<RetailStore>();
   late final TextEditingController _search;
+
+  @override
+  RetailStore get searchStore => _store;
+  @override
+  String get searchRoute => '/customers';
+  @override
+  TextEditingController get searchField => _search;
 
   /// Show only the accounts with money still on them.
   bool _owingOnly = false;
@@ -48,12 +57,13 @@ class _CustomersPageState extends State<CustomersPage> {
   @override
   void initState() {
     super.initState();
-    // Seeded from the top-bar search when the shopkeeper searched from there.
-    _search = TextEditingController(text: _store.consumePendingGlobalQuery());
+    _search = TextEditingController();
+    beginGlobalSearchHandoff();
   }
 
   @override
   void dispose() {
+    endGlobalSearchHandoff();
     _search.dispose();
     super.dispose();
   }

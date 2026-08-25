@@ -578,20 +578,41 @@ class RetailStore extends ChangeNotifier {
   final _styleRows = <ProductStyleRow>[];
   bool _initialized = false;
 
-  /// Text just typed into the top-bar global search. Pages initialise their
-  /// own search field from it and clear it — one-shot handoff so back-and-
-  /// forth navigation does not keep re-seeding stale queries.
-  String _pendingGlobalQuery = '';
-  String get pendingGlobalQuery => _pendingGlobalQuery;
-  void setPendingGlobalQuery(String query) {
-    _pendingGlobalQuery = query;
+  /// A search handed off from the top bar to the page that can answer it.
+  ///
+  /// The handoff is addressed: the route the query is meant for travels with
+  /// the query itself. Without that, every mounted page raced to claim it and
+  /// whichever one happened to be on screen swallowed the query a moment
+  /// before the navigation to the real destination — so the shopkeeper landed
+  /// on the right page with an empty box, which is what "the search does
+  /// nothing" looked like from the counter.
+  ///
+  /// Addressing it also means a page that is *already* open picks the query up
+  /// on the spot, instead of only ever reading it once in `initState` and
+  /// therefore ignoring every search after the first.
+  String _pendingSearchQuery = '';
+  String _pendingSearchRoute = '';
+
+  String get pendingGlobalQuery => _pendingSearchQuery;
+
+  /// Sends [query] to the page at [route]. Call this *before* navigating: a
+  /// page already showing [route] claims it from the notification, and a page
+  /// about to be built claims it from [takeSearchFor] instead.
+  void requestSearch(String query, String route) {
+    _pendingSearchQuery = query.trim();
+    _pendingSearchRoute = route;
     notifyListeners();
   }
 
-  String consumePendingGlobalQuery() {
-    final q = _pendingGlobalQuery;
-    _pendingGlobalQuery = '';
-    return q;
+  /// Claims a pending search, but only one addressed to [route]. Returns an
+  /// empty string when there is nothing waiting for this page, which is the
+  /// signal to leave the page's own search box exactly as the user left it.
+  String takeSearchFor(String route) {
+    if (_pendingSearchRoute != route || _pendingSearchQuery.isEmpty) return '';
+    final query = _pendingSearchQuery;
+    _pendingSearchQuery = '';
+    _pendingSearchRoute = '';
+    return query;
   }
 
   bool get isAuthenticated => currentUser != null;

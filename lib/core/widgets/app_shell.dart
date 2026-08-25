@@ -3,6 +3,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/di/injection.dart';
 import '../services/permissions.dart';
+import '../app_build.dart';
+import '../services/global_search.dart';
 import '../services/retail_store.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
@@ -195,57 +197,82 @@ class _Rail extends StatelessWidget {
       decoration: const BoxDecoration(
         border: Border(top: BorderSide(color: Color(0xFF2A251D))),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          CircleAvatar(
-            radius: 15,
-            backgroundColor: AppColors.brandRaised,
-            child: Text(
-              (user?.name.trim().isNotEmpty ?? false)
-                  ? user!.name.trim().characters.first.toUpperCase()
-                  : '?',
-              style: TextStyle(
-                color: AppColors.brandInk,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
+          // Which build this is. Small, always there, and the first thing to
+          // check when the shop says a fix did not arrive — a machine still on
+          // last month's installer reads as a fix that never worked.
+          if (!iconOnly)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Text(
+                AppBuild.label,
+                style: TextStyle(
+                  color: AppColors.brandInkFaint,
+                  fontSize: 10,
+                  letterSpacing: 0.4,
+                ),
               ),
             ),
-          ),
-          if (!iconOnly) ...[
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    user?.name ?? 'Not signed in',
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: AppColors.brandInkSoft,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                    ),
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 15,
+                backgroundColor: AppColors.brandRaised,
+                child: Text(
+                  (user?.name.trim().isNotEmpty ?? false)
+                      ? user!.name.trim().characters.first.toUpperCase()
+                      : '?',
+                  style: TextStyle(
+                    color: AppColors.brandInk,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
                   ),
-                  Text(
-                    user?.role.label ?? '',
-                    style: TextStyle(
-                      color: AppColors.brandInkFaint,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ],
-          IconButton(
-            tooltip: 'Sign out',
-            onPressed: () async {
-              await store.logout();
-              if (context.mounted) context.go('/login');
-            },
-            visualDensity: VisualDensity.compact,
-            icon: Icon(Icons.logout, size: 17, color: AppColors.brandInkFaint),
+              if (!iconOnly) ...[
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        user?.name ?? 'Not signed in',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppColors.brandInkSoft,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        user?.role.label ?? '',
+                        style: TextStyle(
+                          color: AppColors.brandInkFaint,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              IconButton(
+                tooltip: 'Sign out',
+                onPressed: () async {
+                  await store.logout();
+                  if (context.mounted) context.go('/login');
+                },
+                visualDensity: VisualDensity.compact,
+                icon: Icon(
+                  Icons.logout,
+                  size: 17,
+                  color: AppColors.brandInkFaint,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -402,13 +429,19 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-/// A live search that lands where the query is most likely to be useful.
+/// The top-bar search, and the drop-down of what it found.
 ///
-/// A query shaped like an invoice number goes to Bills; anything with letters
-/// and no obvious invoice shape goes to Customers when the shop has any, and
-/// Products otherwise. The chosen destination reads the query from the store
-/// and clears it so back-and-forth navigation does not keep re-seeding the
-/// same string.
+/// This used to guess a destination from the shape of the query and send the
+/// shopkeeper there with the text pre-filled. The guess was "Customers if the
+/// shop has any customers, Products otherwise" — and every install seeds a
+/// walk-in customer on first run, so the guess was always Customers. Typing a
+/// garment name landed on a customer list with nothing in it, which is exactly
+/// what "the search bar stopped working" looked like from behind the counter.
+///
+/// Now it searches products, bills, customers and suppliers together and shows
+/// what it found. Picking a row goes to the page that owns the thing with that
+/// page's own search box already filled in, so the result is on screen rather
+/// than one more search away. Enter takes the first row.
 class _GlobalSearch extends StatefulWidget {
   const _GlobalSearch({required this.store});
 
@@ -419,11 +452,15 @@ class _GlobalSearch extends StatefulWidget {
 }
 
 class _GlobalSearchState extends State<_GlobalSearch> {
+  static const double _width = 380;
+
   final _controller = TextEditingController();
+  final _focus = FocusNode();
 
   @override
   void dispose() {
     _controller.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
@@ -431,57 +468,181 @@ class _GlobalSearchState extends State<_GlobalSearch> {
   Widget build(BuildContext context) => Align(
     alignment: Alignment.centerLeft,
     child: SizedBox(
-      width: 380,
-      height: 36,
-      child: TextField(
-        controller: _controller,
-        onSubmitted: _submit,
-        decoration: InputDecoration(
-          isDense: true,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.base,
-            vertical: AppSpacing.sm,
-          ),
-          filled: true,
-          fillColor: AppColors.surfaceAlt,
-          hintText: 'Search products, bills, customers…',
-          hintStyle: const TextStyle(color: AppColors.inkFaint, fontSize: 13),
-          prefixIcon: const Icon(
-            Icons.search,
-            size: 16,
-            color: AppColors.inkFaint,
-          ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadii.input),
-            borderSide: const BorderSide(color: AppColors.border),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadii.input),
-            borderSide: const BorderSide(color: AppColors.border),
+      width: _width,
+      child: RawAutocomplete<GlobalHit>(
+        textEditingController: _controller,
+        focusNode: _focus,
+        displayStringForOption: (hit) => hit.title,
+        optionsBuilder: (value) => searchEverything(widget.store, value.text),
+        onSelected: _go,
+        fieldViewBuilder: (context, controller, focusNode, onSubmitted) =>
+            SizedBox(
+              height: 36,
+              child: TextField(
+                controller: controller,
+                focusNode: focusNode,
+                onSubmitted: (_) => onSubmitted(),
+                decoration: InputDecoration(
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.base,
+                    vertical: AppSpacing.sm,
+                  ),
+                  filled: true,
+                  fillColor: AppColors.surfaceAlt,
+                  hintText: 'Search products, bills, customers…',
+                  hintStyle: const TextStyle(
+                    color: AppColors.inkFaint,
+                    fontSize: 13,
+                  ),
+                  prefixIcon: const Icon(
+                    Icons.search,
+                    size: 16,
+                    color: AppColors.inkFaint,
+                  ),
+                  suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: controller,
+                    builder: (context, value, _) => value.text.isEmpty
+                        ? const SizedBox.shrink()
+                        : IconButton(
+                            tooltip: 'Clear',
+                            iconSize: 14,
+                            icon: const Icon(Icons.close_rounded),
+                            onPressed: controller.clear,
+                          ),
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadii.input),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadii.input),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                ),
+              ),
+            ),
+        optionsViewBuilder: (context, onSelected, options) => Align(
+          alignment: Alignment.topLeft,
+          child: Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.xs),
+            child: Material(
+              elevation: 8,
+              borderRadius: AppRadii.cardBorder,
+              clipBehavior: Clip.antiAlias,
+              child: SizedBox(
+                width: _width,
+                child: ListView.builder(
+                  padding: EdgeInsets.zero,
+                  shrinkWrap: true,
+                  itemCount: options.length,
+                  itemBuilder: (context, i) {
+                    final hit = options.elementAt(i);
+                    return _HitRow(
+                      hit: hit,
+                      onTap: hit.isActionable ? () => onSelected(hit) : null,
+                    );
+                  },
+                ),
+              ),
+            ),
           ),
         ),
       ),
     ),
   );
 
-  void _submit(String raw) {
-    final query = raw.trim();
-    if (query.isEmpty) return;
-    widget.store.setPendingGlobalQuery(query);
+  void _go(GlobalHit hit) {
+    if (!hit.isActionable) return;
 
-    // Invoice-looking queries land on Bills; everything else on Customers when
-    // the shop keeps any, Products otherwise. Same rules as the pages'
-    // own quick-search behaviour, so the result is where the shopkeeper
-    // would have gone by hand.
-    final looksLikeInvoice =
-        query.contains('/') ||
-        RegExp(r'^[A-Za-z]{1,4}\d').hasMatch(query) ||
-        query.toUpperCase().startsWith('INV');
-    final destination = looksLikeInvoice
-        ? '/sales'
-        : (widget.store.customers.isNotEmpty ? '/customers' : '/products');
-    context.go(destination);
-    _controller.clear();
+    // Address the query to the destination *before* navigating. A page already
+    // showing that route claims it from this notification; a page about to be
+    // built claims it in its own initState. Either way the box on the
+    // destination arrives filled in.
+    widget.store.requestSearch(hit.query, hit.route);
+    context.go(hit.route);
+
+    // RawAutocomplete writes the picked title into the field as it closes, so
+    // the box is emptied on the next frame rather than during the selection.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _controller.clear();
+      _focus.unfocus();
+    });
+  }
+}
+
+/// One row of the search drop-down: what kind of thing it is, what it is
+/// called, and the one detail that tells two similar rows apart.
+class _HitRow extends StatelessWidget {
+  const _HitRow({required this.hit, this.onTap});
+
+  final GlobalHit hit;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = switch (hit.kind) {
+      GlobalHitKind.product => Icons.checkroom_rounded,
+      GlobalHitKind.bill => Icons.receipt_rounded,
+      GlobalHitKind.customer => Icons.person_rounded,
+      GlobalHitKind.supplier => Icons.local_shipping_rounded,
+    };
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.base,
+          vertical: AppSpacing.sm,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              onTap == null ? Icons.search_off_rounded : icon,
+              size: 16,
+              color: AppColors.inkFaint,
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    hit.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    hit.subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: AppColors.inkFaint,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (onTap != null)
+              Text(
+                hit.kind.label,
+                style: const TextStyle(
+                  fontSize: 10,
+                  letterSpacing: 0.8,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.inkFaint,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
