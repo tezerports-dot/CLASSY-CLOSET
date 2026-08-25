@@ -40,6 +40,9 @@ jobs:
     needs: check
     if: github.event_name != 'pull_request'
     runs-on: windows-latest
+    # Needed to publish the installer as a release below.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -82,3 +85,36 @@ jobs:
         with:
           name: ClassyClosetSetup
           path: installer/ClassyClosetSetup.exe
+
+      # An artifact lives inside a workflow run page, behind a login, several
+      # clicks from anywhere anybody would think to look. That is why the shop
+      # kept running a months-old build and reporting fixes as missing. A
+      # release gives every build one permanent address —
+      # /releases/latest — so the newest installer is always one click away.
+      - name: Publish the installer as a release
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.stamp.outputs.version }}
+          COMMIT: ${{ steps.stamp.outputs.commit }}
+          BUILT_ON: ${{ steps.stamp.outputs.date }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}-${COMMIT}"
+          stamp="v${VERSION} - ${COMMIT} - ${BUILT_ON}"
+          {
+            printf 'Windows installer for build `%s`.\n\n' "$stamp"
+            printf 'Close Classy Closet before installing. Windows cannot replace the program while it is running, and an install that fails that way leaves the old version in place looking untouched.\n\n'
+            printf 'After installing, open Settings. The line at the bottom should read `%s`. If it says anything else, the new build did not take.\n' "$stamp"
+          } > notes.md
+
+          # Re-running a build must not fail on an existing tag: replace the
+          # asset instead, so the release always carries the newest installer.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" installer/ClassyClosetSetup.exe --clobber
+            gh release edit "$tag" --notes-file notes.md --latest
+          else
+            gh release create "$tag" installer/ClassyClosetSetup.exe \
+              --title "Classy Closet $tag" --notes-file notes.md --latest
+          fi

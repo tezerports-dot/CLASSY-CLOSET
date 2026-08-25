@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
 import '../../../../app/di/injection.dart';
+import '../../../../core/app_build.dart';
 import '../../../../core/services/printer_service.dart';
 import '../../../../core/services/retail_store.dart';
 import '../../../../core/utils/formatters.dart';
@@ -299,6 +300,17 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
           '${_sheet.heightMm.toStringAsFixed(0)} mm, shown enlarged. '
           'This is the print, not a drawing of it.',
           style: theme.textTheme.bodySmall,
+        ),
+        // The build that drew it, right next to it. If this panel ever shows a
+        // tag that does not match what was asked for, the build string is the
+        // thing to read back — an old installer draws an old label, and from
+        // the counter that is indistinguishable from a fix that never landed.
+        SelectableText(
+          'Drawn by build ${AppBuild.label}',
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontSize: 11,
+            color: theme.hintColor,
+          ),
         ),
       ],
     );
