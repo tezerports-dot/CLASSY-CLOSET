@@ -108,11 +108,23 @@ void main() {
         closeTo(totals.taxable, 0.02),
         reason: 'line taxable values must sum to the bill taxable value',
       );
+      // The item column shows shelf prices — the discount is one line in the
+      // footer, not a mark-down smeared across the garments — so the column
+      // adds to the subtotal, and subtotal less discount is what is owed.
+      final printed = round(lines.fold<double>(0, (s, l) => s + l.lineTotal));
+      expect(printed, closeTo(totals.gross, 0.02));
       expect(
-        round(lines.fold<double>(0, (s, l) => s + l.lineTotal)),
+        round(printed - totals.billDiscount - totals.lineDiscount),
         closeTo(totals.total, 0.02),
-        reason: 'the item column must add up to what the customer pays',
+        reason: 'subtotal less the one discount is what the customer pays',
       );
+      for (final line in lines) {
+        expect(
+          line.discount,
+          0,
+          reason: 'no garment carries a share of the bill discount',
+        );
+      }
     });
 
     test('what is stored is what was collected', () async {
@@ -132,8 +144,13 @@ void main() {
             'carry pre-discount tax the shop over-remits',
       );
       expect(
-        round(items.fold<double>(0, (s, i) => s + i.lineTotal)),
+        round(
+          items.fold<double>(0, (s, i) => s + i.lineTotal) - sale.discountTotal,
+        ),
         closeTo(sale.total, 0.02),
+        reason:
+            'the stored rows carry shelf values; the sale row carries '
+            'the one discount',
       );
       expect(round(sale.cgst + sale.sgst + sale.taxableValue), sale.total);
     });
@@ -149,7 +166,10 @@ void main() {
       final reprint = await store.loadInvoiceForReceipt(sale.receipt);
       expect(reprint, isNotNull);
       expect(
-        round(reprint!.lines.fold<double>(0, (s, l) => s + l.lineTotal)),
+        round(
+          reprint!.lines.fold<double>(0, (s, l) => s + l.lineTotal) -
+              sale.discountTotal,
+        ),
         closeTo(sale.total, 0.02),
         reason: 'a bill pulled up weeks later must match the one printed',
       );
