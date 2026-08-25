@@ -94,47 +94,31 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
               ),
               const SizedBox(height: 16),
               Text('What goes on the label', style: theme.textTheme.titleSmall),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2),
+              Text(
+                'The barcode with its number underneath, and the garment '
+                'name with its size. Nothing else — a price label crowded '
+                'with the shop name and the MRP leaves the two things '
+                'anybody reaches for too small to use.',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
                 children: [
-                  _toggle('Shop name', _options.showStoreName, (v) {
-                    setState(
-                      () => _options = LabelOptions(
-                        showStoreName: v,
-                        showProductName: _options.showProductName,
-                        showVariant: _options.showVariant,
-                        showPrice: _options.showPrice,
-                      ),
-                    );
-                  }),
                   _toggle('Product name', _options.showProductName, (v) {
                     setState(
                       () => _options = LabelOptions(
-                        showStoreName: _options.showStoreName,
                         showProductName: v,
                         showVariant: _options.showVariant,
-                        showPrice: _options.showPrice,
                       ),
                     );
                   }),
                   _toggle('Size / colour', _options.showVariant, (v) {
                     setState(
                       () => _options = LabelOptions(
-                        showStoreName: _options.showStoreName,
                         showProductName: _options.showProductName,
                         showVariant: v,
-                        showPrice: _options.showPrice,
-                      ),
-                    );
-                  }),
-                  _toggle('MRP', _options.showPrice, (v) {
-                    setState(
-                      () => _options = LabelOptions(
-                        showStoreName: _options.showStoreName,
-                        showProductName: _options.showProductName,
-                        showVariant: _options.showVariant,
-                        showPrice: v,
                       ),
                     );
                   }),

@@ -4,7 +4,6 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../../../core/services/retail_store.dart';
-import '../../../core/utils/formatters.dart';
 
 /// The label stock a sheet is laid out for.
 ///
@@ -51,23 +50,25 @@ class LabelRequest {
   final int copies;
 }
 
-/// What each label carries besides the barcode.
+/// What each label carries.
+///
+/// The tag is three things and nothing else: the garment's name with its size,
+/// the barcode, and the barcode's number underneath. Everything the label used
+/// to carry as well — the shop name, the MRP, the SKU repeated under the
+/// number — competed with the two things somebody actually reaches for, which
+/// are the bars for the scanner and the digits for when the scanner will not
+/// read a creased tag.
+///
+/// The flags stay so a shop that wants a barcode-only tag, or one without the
+/// size, can still have it; there is simply nothing else to switch off.
 class LabelOptions {
-  const LabelOptions({
-    this.showStoreName = true,
-    this.showProductName = true,
-    this.showVariant = true,
-    this.showPrice = true,
-    this.showMrpPrefix = true,
-  });
+  const LabelOptions({this.showProductName = true, this.showVariant = true});
 
-  final bool showStoreName;
+  /// The garment's name, on the top line.
   final bool showProductName;
-  final bool showVariant;
-  final bool showPrice;
 
-  /// Indian price labels conventionally read "MRP ₹499".
-  final bool showMrpPrefix;
+  /// The size (and colour when the design carries one), appended to the name.
+  final bool showVariant;
 }
 
 /// Builds a printable sheet of barcode labels.
@@ -130,84 +131,79 @@ pw.Widget _label(
   LabelOptions options,
   LabelSheet sheet,
 ) {
-  // Small die-cuts cannot carry as much text as a large one, so the type scale
-  // follows the label height rather than being fixed.
-  final tiny = sheet.heightMm <= 25;
-  final nameSize = tiny ? 5.0 : 7.0;
-  final priceSize = tiny ? 7.0 : 10.0;
-  final codeSize = tiny ? 4.5 : 6.0;
-  final barcodeHeight = tiny ? 13.0 : 21.0;
+  // The type scale follows the label's own height rather than a fixed pair of
+  // sizes, so a 21 mm die-cut and a 42 mm one are both balanced instead of one
+  // being cramped and the other half empty. Points, not millimetres, because
+  // that is what the PDF layout works in.
+  final heightPt = sheet.heightMm * PdfPageFormat.mm;
+  final nameSize = (heightPt * 0.115).clamp(5.0, 11.0);
+  final codeSize = (heightPt * 0.135).clamp(6.0, 13.0);
+
+  // Bars take the room left once both text lines, the gaps around them, this
+  // container's own padding and the page margin outside it are accounted for.
+  //
+  // The slack matters more than the bar height does. A column that overflows
+  // its cell by even a point does not shrink — the PDF layout drops the last
+  // child, and the last child here is the number. That is exactly how the
+  // number went missing from the printed tag: the arithmetic looked right on
+  // paper and the digits silently vanished off the bottom of every label.
+  //
+  // A line of text occupies roughly 1.2x its point size once ascender and
+  // descender are counted, and 22pt covers the padding, the two gaps and
+  // enough margin that rounding cannot tip it over.
+  final textBlock = (nameSize + codeSize) * 1.2;
+  final barcodeHeight = (heightPt - textBlock - 22).clamp(
+    14.0,
+    heightPt * 0.48,
+  );
+
+  // "Cotton Shirt · M" on one line: the name is what a person reads, the size
+  // is the only part of it they need at the rail, and one line leaves the bars
+  // the vertical room they need.
+  final variant = product.variantLabel.trim();
+  final caption = [
+    if (options.showProductName) product.name.trim(),
+    if (options.showVariant && variant.isNotEmpty) variant,
+  ].where((part) => part.isNotEmpty).join('  ·  ');
 
   return pw.Container(
-    padding: const pw.EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+    padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
     child: pw.Column(
       mainAxisAlignment: pw.MainAxisAlignment.center,
       crossAxisAlignment: pw.CrossAxisAlignment.center,
       children: [
-        if (options.showStoreName && (profile?.storeName ?? '').isNotEmpty)
+        if (caption.isNotEmpty) ...[
           pw.Text(
-            profile!.storeName,
+            caption,
             style: pw.TextStyle(
-              fontSize: codeSize,
+              fontSize: nameSize,
               fontWeight: pw.FontWeight.bold,
             ),
-            maxLines: 1,
-            overflow: pw.TextOverflow.clip,
-          ),
-        if (options.showProductName)
-          pw.Text(
-            product.name,
-            style: pw.TextStyle(fontSize: nameSize),
             maxLines: 1,
             overflow: pw.TextOverflow.clip,
             textAlign: pw.TextAlign.center,
           ),
-        if (options.showVariant && product.variantLabel.isNotEmpty)
-          pw.Text(
-            product.variantLabel,
-            style: pw.TextStyle(fontSize: nameSize),
-            maxLines: 1,
-          ),
-        pw.SizedBox(height: 1),
+          pw.SizedBox(height: 3),
+        ],
         pw.BarcodeWidget(
           barcode: pw.Barcode.code128(),
           data: _codeFor(product),
           height: barcodeHeight,
+          // The number is drawn separately below so it can be set at a size
+          // somebody can read across a counter; the widget's own caption is
+          // fixed small and cramped against the bars.
           drawText: false,
         ),
-        // The number under the bars is what somebody types when the scanner
-        // will not read a creased tag, so it is set to be read across a
-        // counter rather than tucked under the barcode as fine print. Bold,
-        // and spaced out so 8 and B do not get confused at a glance.
+        pw.SizedBox(height: 2),
         pw.Text(
           _codeFor(product),
           style: pw.TextStyle(
-            fontSize: codeSize + 2,
+            fontSize: codeSize,
             fontWeight: pw.FontWeight.bold,
-            letterSpacing: 0.4,
+            letterSpacing: 0.6,
           ),
           maxLines: 1,
         ),
-        // A unit whose barcode differs from its SKU carries both, because
-        // either one will find it at the till.
-        if (product.barcode.trim().isNotEmpty &&
-            product.sku.trim().isNotEmpty &&
-            product.sku.trim() != product.barcode.trim())
-          pw.Text(
-            product.sku.trim(),
-            style: pw.TextStyle(fontSize: codeSize),
-            maxLines: 1,
-          ),
-        if (options.showPrice)
-          pw.Text(
-            '${options.showMrpPrefix ? 'MRP ' : ''}'
-            '${AppFormatters.currency(product.sellingPrice)}',
-            style: pw.TextStyle(
-              fontSize: priceSize,
-              fontWeight: pw.FontWeight.bold,
-            ),
-            maxLines: 1,
-          ),
       ],
     ),
   );
