@@ -1755,11 +1755,17 @@ class RetailStore extends ChangeNotifier {
                 productId: line.product.id,
                 quantity: line.quantity.toDouble(),
                 unitPrice: line.product.sellingPrice,
-                discountAmount: Value(_money(line.discount + shares[i])),
+                // The row records the shelf value and the tax actually
+                // charged on it. The bill discount is not smeared across the
+                // items — it is one figure on the sale row — so what came off
+                // this line stays recoverable as
+                // lineTotal - (taxableValue + taxAmount) without pretending
+                // each garment was individually marked down.
+                discountAmount: Value(line.discount),
                 taxAmount: Value(tax.taxAmount),
                 lineTotal: gstSettings.pricesIncludeTax
-                    ? _money(line.total - shares[i])
-                    : tax.grossValue,
+                    ? line.total
+                    : _money(tax.grossValue + shares[i]),
                 hsnCode: Value(_hsnFor(line.product)),
                 taxRate: Value(tax.ratePercent),
                 taxableValue: Value(tax.taxableValue),

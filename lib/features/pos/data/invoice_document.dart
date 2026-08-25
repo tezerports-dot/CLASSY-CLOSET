@@ -238,9 +238,13 @@ List<pw.Widget> _rollBody(
     // reads down as: what the garments came to, what came off, what is taxed,
     // what is owed. Subtotal is derived from the lines rather than from the
     // sale row, so the item column and the footer can never disagree.
-    _rollTotal('Subtotal', _linesGross(data), base),
-    if (_linesDiscount(data) > 0)
-      _rollTotal('Discount', -_linesDiscount(data), base),
+    _rollTotal(
+      'Subtotal',
+      data.lines.fold<double>(0, (sum, l) => sum + l.lineTotal),
+      base,
+    ),
+    if (sale.discountTotal > 0)
+      _rollTotal('Discount', -sale.discountTotal, base),
     if (sale.taxTotal > 0) _rollTotal('Taxable', sale.taxableValue, base),
     if (sale.cgst > 0) _rollTotal('CGST', sale.cgst, base),
     if (sale.sgst > 0) _rollTotal('SGST', sale.sgst, base),
@@ -298,19 +302,6 @@ pw.Widget _rollDivider() => pw.Padding(
 /// left a stripe of white down the middle of every heading line and read as a
 /// table with nothing in it. Centred as one phrase, the heading block sits
 /// under the shop name as a block instead of a ragged column.
-/// What the garments came to before anything came off, read off the printed
-/// lines themselves.
-double _linesGross(InvoiceData data) => _round(
-  data.lines.fold<double>(0, (sum, l) => sum + l.lineTotal + l.discount),
-);
-
-/// Everything that came off the bill: the per-line adjustments and the one
-/// bill-level discount, already shared out across the lines.
-double _linesDiscount(InvoiceData data) =>
-    _round(data.lines.fold<double>(0, (sum, l) => sum + l.discount));
-
-double _round(double value) => (value * 100).round() / 100;
-
 pw.Widget _rollKeyValue(String label, String value, double size) => pw.Center(
   child: pw.Text(
     '$label: $value',
@@ -556,13 +547,14 @@ List<pw.Widget> _sheetBody(InvoiceData data, pw.MemoryImage? logo) {
           width: 210,
           child: pw.Column(
             children: [
-              // Derived from the printed lines, which already carry their
-              // share of the bill discount — taking the discount off a
-              // subtotal that was itself net of it deducted the same money
-              // twice and left the sheet not adding up.
-              _sheetTotal('Subtotal', _linesGross(data)),
-              if (_linesDiscount(data) > 0)
-                _sheetTotal('Discount', -_linesDiscount(data)),
+              // The printed amount column, which the discount is then taken
+              // off — so the sheet reads the way the customer reads it.
+              _sheetTotal(
+                'Subtotal',
+                data.lines.fold<double>(0, (sum, l) => sum + l.lineTotal),
+              ),
+              if (sale.discountTotal > 0)
+                _sheetTotal('Discount', -sale.discountTotal),
               if (sale.taxTotal > 0)
                 _sheetTotal('Taxable value', sale.taxableValue),
               if (sale.cgst > 0) _sheetTotal('CGST', sale.cgst),
@@ -787,16 +779,24 @@ List<InvoiceLine> invoiceLinesFor({
           hsnCode: hsnFor(line.product),
           quantity: line.quantity,
           unitPrice: line.product.sellingPrice,
-          // The line's own discount plus its share of the bill's, so the
-          // printed "less" figure explains the gap between quantity x price
-          // and what this line actually contributes.
-          discount: round(line.discount + share),
+          // Only the operator's own adjustment to this line. The bill
+          // discount is one number the shop agreed with the customer, and it
+          // belongs on one line of the bill — smeared across the items it
+          // makes every garment look individually marked down and leaves the
+          // customer adding three columns to find what they owe.
+          discount: line.discount,
+          // What is taxed is still the discounted value: the share comes off
+          // before the tax is worked out, it simply is not printed per item.
           taxableValue: tax.taxableValue,
           taxRate: tax.ratePercent,
           cgst: tax.cgst,
           sgst: tax.sgst,
           igst: tax.igst,
-          lineTotal: settings.pricesIncludeTax ? net : tax.grossValue,
+          // The amount column shows the shelf price, so the column adds up to
+          // the subtotal the discount is then taken off.
+          lineTotal: settings.pricesIncludeTax
+              ? line.total
+              : round(tax.grossValue + share),
         );
       }(),
   ];
