@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
@@ -27,6 +29,10 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
   LabelOptions _options = const LabelOptions();
   final _copies = <int, TextEditingController>{};
   bool _printing = false;
+
+  /// The rendered picture of one label, exactly as it will print.
+  Uint8List? _previewPng;
+  int _previewToken = 0;
   late final PrinterService _printerService = getIt<PrinterService>();
 
   /// The label printer, when the shop has named one under Hardware.
@@ -47,6 +53,7 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
         text: variant.stock.round().clamp(0, 999).toString(),
       );
     }
+    _renderPreview();
   }
 
   @override
@@ -90,7 +97,10 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
                   for (final sheet in LabelSheet.values)
                     DropdownMenuItem(value: sheet, child: Text(sheet.label)),
                 ],
-                onChanged: (v) => setState(() => _sheet = v ?? _sheet),
+                onChanged: (v) {
+                  setState(() => _sheet = v ?? _sheet);
+                  _renderPreview();
+                },
               ),
               const SizedBox(height: 16),
               Text('What goes on the label', style: theme.textTheme.titleSmall),
@@ -113,6 +123,7 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
                         showVariant: _options.showVariant,
                       ),
                     );
+                    _renderPreview();
                   }),
                   _toggle('Size / colour', _options.showVariant, (v) {
                     setState(
@@ -121,9 +132,12 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
                         showVariant: v,
                       ),
                     );
+                    _renderPreview();
                   }),
                 ],
               ),
+              const SizedBox(height: 16),
+              _previewPanel(theme),
               const SizedBox(height: 16),
               Row(
                 children: [
@@ -246,6 +260,75 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
         ),
       ],
     );
+  }
+
+  /// A picture of one finished label, at the shape of the chosen stock.
+  ///
+  /// The dialog used to describe the tag in prose and hide the only true
+  /// picture of it behind a Preview button and a second dialog. That is a poor
+  /// way to answer "did the label actually change?" — the honest answer is the
+  /// label itself, on screen, without a click. It is rendered from the same
+  /// builder the printer is handed, so it cannot flatter the print.
+  Widget _previewPanel(ThemeData theme) {
+    final png = _previewPng;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('What one label looks like', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 6),
+        Container(
+          height: 132,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: theme.dividerColor),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          padding: const EdgeInsets.all(10),
+          child: png == null
+              ? Text('Rendering the label…', style: theme.textTheme.bodySmall)
+              : Image.memory(
+                  png,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.medium,
+                ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '${_sheet.widthMm.toStringAsFixed(0)} × '
+          '${_sheet.heightMm.toStringAsFixed(0)} mm, shown enlarged. '
+          'This is the print, not a drawing of it.',
+          style: theme.textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+
+  /// Renders the first unit of the design into [_previewPng].
+  ///
+  /// Rasterising goes through the platform, so a build without it — a test
+  /// harness, a machine with no renderer — simply leaves the panel on its
+  /// placeholder rather than taking the dialog down with it. The token guards
+  /// against a slow render from an earlier stock size landing after a newer one.
+  Future<void> _renderPreview() async {
+    final variants = widget.style.variants;
+    if (variants.isEmpty) return;
+    final token = ++_previewToken;
+    try {
+      final pdf = await buildLabelPreview(
+        product: variants.first,
+        sheet: _sheet,
+        profile: widget.store.storeProfile,
+        options: _options,
+      );
+      final raster = await Printing.raster(pdf, pages: [0], dpi: 220).first;
+      final png = await raster.toPng();
+      if (!mounted || token != _previewToken) return;
+      setState(() => _previewPng = png);
+    } catch (_) {
+      if (!mounted || token != _previewToken) return;
+      setState(() => _previewPng = null);
+    }
   }
 
   Widget _toggle(String label, bool value, ValueChanged<bool> onChanged) =>

@@ -54,8 +54,23 @@ jobs:
       - name: Generate the Drift and injectable code
         run: dart run build_runner build --delete-conflicting-outputs
 
+      # The build stamps itself with the commit and the date, so a shop can
+      # read back which build it is running. "It never changed" and "the new
+      # installer never got run" look identical from the counter otherwise.
+      - name: Work out the build stamp
+        id: stamp
+        shell: bash
+        run: |
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          echo "version=$(grep '^version:' pubspec.yaml | cut -d' ' -f2 | cut -d'+' -f1)" >> "$GITHUB_OUTPUT"
+
       - name: Build the Windows app
-        run: flutter build windows --release
+        run: >
+          flutter build windows --release
+          --dart-define=APP_VERSION=${{ steps.stamp.outputs.version }}
+          --dart-define=APP_COMMIT=${{ steps.stamp.outputs.commit }}
+          --dart-define=APP_BUILT_ON=${{ steps.stamp.outputs.date }}
 
       - name: Package with Inno Setup
         run: |

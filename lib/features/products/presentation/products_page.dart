@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../app/di/injection.dart';
 import '../../../core/services/permissions.dart';
 import '../../../core/services/retail_store.dart';
+import '../../../core/widgets/global_search_target.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
@@ -26,15 +27,23 @@ class ProductsPage extends StatefulWidget {
   State<ProductsPage> createState() => _ProductsPageState();
 }
 
-class _ProductsPageState extends State<ProductsPage> {
+class _ProductsPageState extends State<ProductsPage>
+    with GlobalSearchTarget<ProductsPage> {
   final _store = getIt<RetailStore>();
   late final TextEditingController _search;
 
   @override
+  RetailStore get searchStore => _store;
+  @override
+  String get searchRoute => '/products';
+  @override
+  TextEditingController get searchField => _search;
+
+  @override
   void initState() {
     super.initState();
-    // Seeded from the top-bar search when the shopkeeper searched from there.
-    _search = TextEditingController(text: _store.consumePendingGlobalQuery());
+    _search = TextEditingController();
+    beginGlobalSearchHandoff();
   }
 
   bool _showUnits = false;
@@ -45,6 +54,7 @@ class _ProductsPageState extends State<ProductsPage> {
 
   @override
   void dispose() {
+    endGlobalSearchHandoff();
     _search.dispose();
     super.dispose();
   }
