@@ -37,7 +37,12 @@ Source: "{#BuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs c
 Name: "{group}\{#AppName}";         Filename: "{app}\{#AppExeName}"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}";    Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
-Name: "{userstartup}\{#AppName}";    Filename: "{app}\{#AppExeName}"; Tasks: startupicon
+; Installed as admin, so the run-at-login shortcut belongs in the machine-wide
+; startup folder. Written to {userstartup} it landed in the startup folder of
+; whoever happened to run the installer — usually an admin account nobody
+; serves customers from — so a shop that ticked "start when Windows starts"
+; got a till that never started.
+Name: "{commonstartup}\{#AppName}";  Filename: "{app}\{#AppExeName}"; Tasks: startupicon
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Open Classy Closet now"; Flags: nowait postinstall skipifsilent

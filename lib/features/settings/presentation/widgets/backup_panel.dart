@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../core/services/backup_service.dart';
 
@@ -16,6 +19,15 @@ class BackupPanel extends StatefulWidget {
 class _BackupPanelState extends State<BackupPanel> {
   bool _busy = false;
   BackupResult? _last;
+  Directory? _dataFolder;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.service.dataDirectory().then((folder) {
+      if (mounted) setState(() => _dataFolder = folder);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,6 +42,8 @@ class _BackupPanelState extends State<BackupPanel> {
           'restored from that folder.',
           style: theme.textTheme.bodyMedium,
         ),
+        const SizedBox(height: 16),
+        _dataFolderCard(theme),
         const SizedBox(height: 16),
         Wrap(
           spacing: 12,
@@ -114,6 +128,67 @@ class _BackupPanelState extends State<BackupPanel> {
           style: theme.textTheme.bodySmall,
         ),
       ],
+    );
+  }
+
+  /// Names where the shop's data actually lives.
+  ///
+  /// It sits outside the program folder, so uninstalling Classy Closet does
+  /// not touch it — which is why an upgrade keeps the staff logins, the
+  /// settings and the books, and why reinstalling is not a way to start over.
+  /// That surprises people, so it is written down here rather than left to be
+  /// discovered.
+  Widget _dataFolderCard(ThemeData theme) {
+    final path = _dataFolder?.path;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        border: Border.all(color: theme.dividerColor),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.folder_outlined, size: 16),
+              const SizedBox(width: 8),
+              Text(
+                'Where your shop data lives',
+                style: theme.textTheme.titleSmall,
+              ),
+              const Spacer(),
+              if (path != null)
+                TextButton.icon(
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    await Clipboard.setData(ClipboardData(text: path));
+                    if (!mounted) return;
+                    messenger.showSnackBar(
+                      const SnackBar(content: Text('Folder path copied.')),
+                    );
+                  },
+                  icon: const Icon(Icons.copy_rounded, size: 15),
+                  label: const Text('Copy'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          SelectableText(
+            path ?? 'Working it out…',
+            style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'This folder is outside the program folder, so uninstalling does '
+            'not delete it — an update keeps your logins, settings and books. '
+            'Reinstalling is therefore not a way to start fresh: use '
+            'Settings → Reset for that.',
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
+      ),
     );
   }
 

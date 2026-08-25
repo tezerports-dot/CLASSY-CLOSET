@@ -330,7 +330,6 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
       final pdf = await buildLabelPreview(
         product: variants.first,
         sheet: _sheet,
-        profile: widget.store.storeProfile,
         options: _options,
       );
       final raster = await Printing.raster(pdf, pages: [0], dpi: 220).first;
@@ -371,7 +370,6 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
       final pdf = await buildLabelSheet(
         requests: _requests(),
         sheet: _sheet,
-        profile: widget.store.storeProfile,
         options: _options,
       );
 
@@ -422,7 +420,6 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
       final bytes = await buildLabelSheet(
         requests: _requests(),
         sheet: _sheet,
-        profile: widget.store.storeProfile,
         options: _options,
       );
       if (!mounted) return;
