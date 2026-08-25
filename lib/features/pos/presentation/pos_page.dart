@@ -1015,6 +1015,7 @@ class _PosPageState extends State<PosPage> {
               ? product.hsnCode.trim()
               : _store.gstSettings.defaultHsnCode,
           rateFor: _store.gstRateFor,
+          billDiscount: _store.billDiscount,
         ),
         profile: _store.storeProfile,
         paid: paid,

@@ -34,6 +34,10 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
   late final TextEditingController _location;
   DateTime? _expiryDate;
 
+  /// One focus node per type-or-pick field. RawAutocomplete needs to own a
+  /// focus node alongside the controller, and they have to outlive rebuilds.
+  final _suggestFocus = <TextEditingController, FocusNode>{};
+
   @override
   void initState() {
     super.initState();
@@ -90,6 +94,9 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
       controller.dispose();
     }
     super.dispose();
+    for (final node in _suggestFocus.values) {
+      node.dispose();
+    }
   }
 
   @override
@@ -133,7 +140,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                 Row(
                   children: [
                     Expanded(
-                      child: _lookup(
+                      child: _suggest(
                         _category,
                         'Category',
                         widget.store.categoryNames,
@@ -141,14 +148,14 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: _lookup(_brand, 'Brand', widget.store.brandNames),
+                      child: _suggest(_brand, 'Brand', widget.store.brandNames),
                     ),
                   ],
                 ),
                 Row(
                   children: [
                     Expanded(
-                      child: _lookup(
+                      child: _suggest(
                         _unit,
                         'Unit',
                         widget.store.unitNames,
@@ -258,39 +265,90 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
               : Validators.nonNegativeNumber(value),
   );
 
-  Widget _lookup(
+  /// A field you can type into *or* pick an existing value from.
+  ///
+  /// This used to be two controls side by side — a dropdown and a text box —
+  /// sharing one controller, each squeezed into a quarter of the dialog. The
+  /// dropdown had no `isExpanded`, so a real category name overflowed its box
+  /// by well over a hundred pixels and painted straight over the text field
+  /// beside it. Clicks meant for the text box landed on the dropdown instead,
+  /// which is why typing a category, a brand or a unit appeared to do nothing.
+  ///
+  /// One control cannot overflow into its neighbour, and "type a new one or
+  /// pick an old one" is a single idea that deserves a single box.
+  Widget _suggest(
     TextEditingController controller,
     String label,
     List<String> options, {
     bool required = false,
   }) {
     final normalized = options.toSet().toList()..sort();
-    final value = normalized.contains(controller.text) ? controller.text : null;
+    final focus = _suggestFocus.putIfAbsent(controller, FocusNode.new);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: DropdownButtonFormField<String>(
-              initialValue: value,
-              decoration: InputDecoration(labelText: label),
-              items: [
-                for (final option in normalized)
-                  DropdownMenuItem(value: option, child: Text(option)),
-              ],
-              onChanged: (value) =>
-                  setState(() => controller.text = value ?? controller.text),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TextFormField(
-              controller: controller,
-              decoration: InputDecoration(labelText: 'New/existing $label'),
+      child: RawAutocomplete<String>(
+        textEditingController: controller,
+        focusNode: focus,
+        optionsBuilder: (value) {
+          final query = value.text.trim().toLowerCase();
+          return normalized.where(
+            (option) => query.isEmpty || option.toLowerCase().contains(query),
+          );
+        },
+        onSelected: (option) => controller.text = option,
+        fieldViewBuilder: (context, textController, node, onSubmitted) =>
+            TextFormField(
+              controller: textController,
+              focusNode: node,
+              decoration: InputDecoration(
+                labelText: label,
+                helperText: normalized.isEmpty
+                    ? 'Type the first one'
+                    : 'Type a new one, or pick from ${normalized.length}',
+                suffixIcon: normalized.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Show existing',
+                        icon: const Icon(Icons.arrow_drop_down),
+                        onPressed: () {
+                          // Clearing the box makes optionsBuilder return
+                          // everything, which is what "show me the list" means.
+                          textController.clear();
+                          node.requestFocus();
+                        },
+                      ),
+              ),
               validator: required ? Validators.requiredText : null,
             ),
+        optionsViewBuilder: (context, onSelected, options) => Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 6,
+            borderRadius: BorderRadius.circular(6),
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 240, maxWidth: 340),
+              child: ListView(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                children: [
+                  for (final option in options)
+                    InkWell(
+                      onTap: () => onSelected(option),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        child: Text(option),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ),
-        ],
+        ),
       ),
     );
   }

@@ -234,15 +234,13 @@ List<pw.Widget> _rollBody(
     ],
 
     _rollDivider(),
-    // Subtotal is the sum of the printed line totals, so a customer looking
-    // at the roll can add the item column up and see the same number.
-    _rollTotal(
-      'Subtotal',
-      data.lines.fold<double>(0, (sum, l) => sum + l.lineTotal),
-      base,
-    ),
-    if (sale.discountTotal > 0)
-      _rollTotal('Discount', -sale.discountTotal, base),
+    // The printed line totals are already net of the discount, so the bill
+    // reads down as: what the garments came to, what came off, what is taxed,
+    // what is owed. Subtotal is derived from the lines rather than from the
+    // sale row, so the item column and the footer can never disagree.
+    _rollTotal('Subtotal', _linesGross(data), base),
+    if (_linesDiscount(data) > 0)
+      _rollTotal('Discount', -_linesDiscount(data), base),
     if (sale.taxTotal > 0) _rollTotal('Taxable', sale.taxableValue, base),
     if (sale.cgst > 0) _rollTotal('CGST', sale.cgst, base),
     if (sale.sgst > 0) _rollTotal('SGST', sale.sgst, base),
@@ -252,7 +250,13 @@ List<pw.Widget> _rollBody(
     _rollTotal('Paid', data.paid, base),
     if (data.change > 0) _rollTotal('Change', data.change, base),
     pw.SizedBox(height: 2),
-    pw.Text(data.paymentLabel, style: pw.TextStyle(fontSize: base - 1)),
+    pw.Center(
+      child: pw.Text(
+        data.paymentLabel,
+        style: pw.TextStyle(fontSize: base - 1),
+        textAlign: pw.TextAlign.center,
+      ),
+    ),
     _rollDivider(),
 
     // A scannable invoice number turns returns into a scan instead of typing.
@@ -288,18 +292,31 @@ pw.Widget _rollDivider() => pw.Padding(
   child: pw.Divider(height: 0.5, thickness: 0.5),
 );
 
-pw.Widget _rollKeyValue(String label, String value, double size) => pw.Row(
-  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-  children: [
-    pw.Text('$label:', style: pw.TextStyle(fontSize: size - 1)),
-    pw.Flexible(
-      child: pw.Text(
-        value,
-        style: pw.TextStyle(fontSize: size - 1),
-        textAlign: pw.TextAlign.right,
-      ),
-    ),
-  ],
+/// One centred line of the bill's heading — "Invoice: INV/2026/0007".
+///
+/// These used to be pushed to opposite edges of the roll, which on 57 mm paper
+/// left a stripe of white down the middle of every heading line and read as a
+/// table with nothing in it. Centred as one phrase, the heading block sits
+/// under the shop name as a block instead of a ragged column.
+/// What the garments came to before anything came off, read off the printed
+/// lines themselves.
+double _linesGross(InvoiceData data) => _round(
+  data.lines.fold<double>(0, (sum, l) => sum + l.lineTotal + l.discount),
+);
+
+/// Everything that came off the bill: the per-line adjustments and the one
+/// bill-level discount, already shared out across the lines.
+double _linesDiscount(InvoiceData data) =>
+    _round(data.lines.fold<double>(0, (sum, l) => sum + l.discount));
+
+double _round(double value) => (value * 100).round() / 100;
+
+pw.Widget _rollKeyValue(String label, String value, double size) => pw.Center(
+  child: pw.Text(
+    '$label: $value',
+    style: pw.TextStyle(fontSize: size - 1),
+    textAlign: pw.TextAlign.center,
+  ),
 );
 
 pw.Widget _rollTotal(
@@ -312,14 +329,27 @@ pw.Widget _rollTotal(
     fontSize: size,
     fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
   );
-  return pw.Row(
-    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-    children: [
-      pw.Text(label, style: style),
-      pw.Text(AppFormatters.amount(amount), style: style),
-    ],
+  // Centred as a block, but the label and the amount still sit at opposite
+  // ends *within* that block: a column of money that does not line up cannot
+  // be added down the page, and a customer checking a bill does exactly that.
+  return pw.Padding(
+    padding: const pw.EdgeInsets.symmetric(horizontal: _rollTotalsInset),
+    child: pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(label, style: style),
+        pw.Text(AppFormatters.amount(amount), style: style),
+      ],
+    ),
   );
 }
+
+/// How far the totals block is pulled in from each paper edge.
+///
+/// Enough that the totals read as a centred block rather than two columns
+/// pinned to the edges of the roll, and little enough that the longest label
+/// and the largest amount still never collide on 57 mm paper.
+const double _rollTotalsInset = 14;
 
 // --------------------------------------------------------------- sheet layout
 
@@ -526,12 +556,13 @@ List<pw.Widget> _sheetBody(InvoiceData data, pw.MemoryImage? logo) {
           width: 210,
           child: pw.Column(
             children: [
-              _sheetTotal(
-                'Subtotal',
-                data.lines.fold<double>(0, (sum, l) => sum + l.lineTotal),
-              ),
-              if (sale.discountTotal > 0)
-                _sheetTotal('Discount', -sale.discountTotal),
+              // Derived from the printed lines, which already carry their
+              // share of the bill discount — taking the discount off a
+              // subtotal that was itself net of it deducted the same money
+              // twice and left the sheet not adding up.
+              _sheetTotal('Subtotal', _linesGross(data)),
+              if (_linesDiscount(data) > 0)
+                _sheetTotal('Discount', -_linesDiscount(data)),
               if (sale.taxTotal > 0)
                 _sheetTotal('Taxable value', sale.taxableValue),
               if (sale.cgst > 0) _sheetTotal('CGST', sale.cgst),
@@ -710,18 +741,43 @@ String _wordsUnderHundred(int value) {
 }
 
 /// Turns the persisted sale plus its cart snapshot into printable lines.
+///
+/// [billDiscount] is the one discount typed at the till against the whole
+/// bill. It has to reach the lines before their tax is worked out, because GST
+/// is owed on what the customer actually pays, not on the shelf price. Each
+/// line used to be taxed on its full value and the discount deducted
+/// afterwards in the footer, which printed a tax figure higher than the tax
+/// actually collected — the shop would have been remitting GST on money it
+/// never took, and the line column would not add up to the bill's own total.
+///
+/// The discount is shared out in proportion to line value, with the last line
+/// absorbing whatever rounding is left over, so the printed lines always sum
+/// to the bill exactly.
 List<InvoiceLine> invoiceLinesFor({
   required List<CartLine> cart,
   required GstSettings settings,
   required bool interState,
   required String Function(ProductRecord) hsnFor,
   required double Function(ProductRecord) rateFor,
+  double billDiscount = 0,
 }) {
+  double round(double v) => (v * 100).round() / 100;
+
+  // Same allocator the till uses when it writes the sale rows, so the printed
+  // bill and the stored bill can never disagree about who absorbed what.
+  final shares = allocateDiscount([
+    for (final line in cart) line.total,
+  ], billDiscount);
+
   return [
-    for (final line in cart)
+    for (var i = 0; i < cart.length; i++)
       () {
+        final line = cart[i];
+        final share = shares[i];
+        final net = round(line.total - share);
+
         final tax = computeLineTax(
-          lineTotal: line.total,
+          lineTotal: net,
           ratePercent: rateFor(line.product),
           priceIncludesTax: settings.pricesIncludeTax,
           interState: interState,
@@ -731,13 +787,16 @@ List<InvoiceLine> invoiceLinesFor({
           hsnCode: hsnFor(line.product),
           quantity: line.quantity,
           unitPrice: line.product.sellingPrice,
-          discount: line.discount,
+          // The line's own discount plus its share of the bill's, so the
+          // printed "less" figure explains the gap between quantity x price
+          // and what this line actually contributes.
+          discount: round(line.discount + share),
           taxableValue: tax.taxableValue,
           taxRate: tax.ratePercent,
           cgst: tax.cgst,
           sgst: tax.sgst,
           igst: tax.igst,
-          lineTotal: settings.pricesIncludeTax ? line.total : tax.grossValue,
+          lineTotal: settings.pricesIncludeTax ? net : tax.grossValue,
         );
       }(),
   ];
