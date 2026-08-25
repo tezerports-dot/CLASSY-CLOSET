@@ -109,17 +109,14 @@ void main() {
     expect(bytes, isNotEmpty);
   });
 
-  test('turning every option off still produces a label', () async {
+  test('turning every option off still prints the barcode', () async {
+    // The name and the size can be switched off; the barcode and its number
+    // cannot, because a tag without them is not a tag.
     final bytes = await buildLabelSheet(
       requests: [LabelRequest(product: unit('KRT-M'), copies: 2)],
       sheet: LabelSheet.a4_24,
       profile: profile,
-      options: const LabelOptions(
-        showStoreName: false,
-        showProductName: false,
-        showVariant: false,
-        showPrice: false,
-      ),
+      options: const LabelOptions(showProductName: false, showVariant: false),
     );
 
     expect(bytes, isNotEmpty);
