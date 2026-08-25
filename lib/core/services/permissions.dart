@@ -193,6 +193,7 @@ String landingRouteFor(AppRole role) =>
 const Map<String, Permission> routePermissions = {
   '/': Permission.viewDashboard,
   '/pos': Permission.sellAtPos,
+  '/sales': Permission.sellAtPos,
   '/products': Permission.viewProducts,
   '/customers': Permission.viewCustomers,
   '/suppliers': Permission.viewSuppliers,

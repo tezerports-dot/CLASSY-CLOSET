@@ -135,10 +135,11 @@ class _PosPageState extends State<PosPage> {
       animation: _store,
       builder: (context, _) {
         final total = _cartTotal;
-        _selectedCustomer = _resolveSelectedCustomer(
-          _selectedCustomer,
-          _walkInCustomer,
-        );
+        // No auto-fallback to any customer record. The bill is a walk-in until
+        // the operator types a name or phone — the old code adopted the first
+        // customer on the list, which attached every unnamed sale to whoever
+        // happened to be sorted first and even used their state for GST.
+        _selectedCustomer = _liveSelectedCustomer(_selectedCustomer);
         _syncPaymentDefaults(total);
 
         return LayoutBuilder(
@@ -148,23 +149,45 @@ class _PosPageState extends State<PosPage> {
             final bill = _billPanel(context, total);
 
             if (stacked) {
-              // Below the desktop breakpoint the bill goes underneath, but it
-              // keeps its own pinned footer so checkout stays reachable.
+              // Below the desktop breakpoint the catalogue tucks under the
+              // bill — the shopkeeper still reads the bill first.
               return Column(
                 children: [
-                  Expanded(child: catalogue),
+                  Expanded(child: bill),
                   SizedBox(
-                    height: (constraints.maxHeight * 0.52).clamp(320.0, 520.0),
-                    child: bill,
+                    height: (constraints.maxHeight * 0.35).clamp(220.0, 320.0),
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        border: Border(
+                          top: BorderSide(color: AppColors.border),
+                        ),
+                        color: AppColors.surface,
+                      ),
+                      child: catalogue,
+                    ),
                   ),
                 ],
               );
             }
+            // Bill fills the counter — that is the thing the cashier is
+            // reading and the customer is checking. The catalogue is a
+            // scan-first sidebar on the right: the scanner types a barcode
+            // and the item drops onto the bill without anybody looking at
+            // the tile grid.
             return Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(child: catalogue),
-                SizedBox(width: 400, child: bill),
+                Expanded(child: bill),
+                SizedBox(
+                  width: 320,
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      border: Border(left: BorderSide(color: AppColors.border)),
+                      color: AppColors.surface,
+                    ),
+                    child: catalogue,
+                  ),
+                ),
               ],
             );
           },
@@ -717,7 +740,7 @@ class _PosPageState extends State<PosPage> {
                 controller: _paymentReference,
                 onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
-                  labelText: 'Transaction reference',
+                  labelText: 'Transaction reference (optional)',
                   hintText: "Copy it off the machine's slip",
                   helperText:
                       'Connect the Paytm machine under Hardware and this '
@@ -985,28 +1008,15 @@ class _PosPageState extends State<PosPage> {
     _PaymentMode.cash || _PaymentMode.card => 0,
   };
 
-  CustomerRecord? get _walkInCustomer {
-    for (final customer in _store.customers) {
-      if (customer.name.toLowerCase().contains('walk-in')) return customer;
-    }
-    return _store.customers.isEmpty ? null : _store.customers.first;
-  }
-
-  /// [RetailStore.refresh] rebuilds [RetailStore.customers] with new instances,
-  /// so the previous selection is matched by id and swapped for the live
-  /// record. Returning the stale instance would leave the dropdown holding a
-  /// value that is not identical to any of its items, which trips the
-  /// `DropdownButtonFormField` "exactly one item with value" assertion on the
-  /// next build.
-  CustomerRecord? _resolveSelectedCustomer(
-    CustomerRecord? selected,
-    CustomerRecord? walkIn,
-  ) {
-    if (selected == null) return walkIn;
+  /// Re-points a previously chosen customer at the reloaded record after a
+  /// refresh; null stays null. A sale with no chosen customer is a walk-in
+  /// on the printed bill, and no customer_id is written to the sale row.
+  CustomerRecord? _liveSelectedCustomer(CustomerRecord? selected) {
+    if (selected == null) return null;
     for (final customer in _store.customers) {
       if (customer.id == selected.id) return customer;
     }
-    return walkIn;
+    return null;
   }
 
   /// Called from [build], so the controller writes are deferred to the end of
@@ -1046,9 +1056,10 @@ class _PosPageState extends State<PosPage> {
         (_paidAmount - total).abs() >= 0.01) {
       return false;
     }
-    if (_needsTerminal && !_terminalWillCollect) {
-      return _paymentReference.text.trim().isNotEmpty;
-    }
+    // Reference is stored as typed, empty or not. The old code refused to
+    // check out a card/UPI sale without a reference when the machine was not
+    // configured, which stopped shops that take card payments on a standalone
+    // Paytm machine and reconcile references by hand at end-of-day.
     return true;
   }
 

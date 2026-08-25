@@ -180,6 +180,19 @@ pw.Widget _label(
           style: pw.TextStyle(fontSize: codeSize),
           maxLines: 1,
         ),
+        // The SKU is the unit's own unique number and it is what someone
+        // types when the scanner cannot read a creased tag. When the label
+        // already carries a barcode the two differ, so both are printed —
+        // otherwise the SKU never reaches the tag and manual lookup has
+        // nothing to go on.
+        if (product.barcode.trim().isNotEmpty &&
+            product.sku.trim().isNotEmpty &&
+            product.sku.trim() != product.barcode.trim())
+          pw.Text(
+            product.sku.trim(),
+            style: pw.TextStyle(fontSize: codeSize - 0.5),
+            maxLines: 1,
+          ),
         if (options.showPrice)
           pw.Text(
             '${options.showMrpPrefix ? 'MRP ' : ''}'

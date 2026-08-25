@@ -13,6 +13,7 @@ import '../features/hardware/presentation/hardware_page.dart';
 import '../features/purchases/presentation/purchases_page.dart';
 import '../features/reports/presentation/reports_page.dart';
 import '../features/returns/presentation/returns_page.dart';
+import '../features/sales/presentation/sales_page.dart';
 import '../features/shifts/presentation/shift_page.dart';
 import '../features/settings/presentation/settings_page.dart';
 import '../features/setup/presentation/store_setup_page.dart';
@@ -56,6 +57,7 @@ GoRouter createAppRouter(RetailStore store) {
           GoRoute(path: '/', builder: (_, __) => const DashboardPage()),
           GoRoute(path: '/products', builder: (_, __) => const ProductsPage()),
           GoRoute(path: '/pos', builder: (_, __) => const PosPage()),
+          GoRoute(path: '/sales', builder: (_, __) => const SalesPage()),
           GoRoute(
             path: '/customers',
             builder: (_, __) => const CustomersPage(),

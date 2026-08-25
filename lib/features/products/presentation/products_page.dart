@@ -28,7 +28,14 @@ class ProductsPage extends StatefulWidget {
 
 class _ProductsPageState extends State<ProductsPage> {
   final _store = getIt<RetailStore>();
-  final _search = TextEditingController();
+  late final TextEditingController _search;
+
+  @override
+  void initState() {
+    super.initState();
+    // Seeded from the top-bar search when the shopkeeper searched from there.
+    _search = TextEditingController(text: _store.consumePendingGlobalQuery());
+  }
 
   bool _showUnits = false;
 

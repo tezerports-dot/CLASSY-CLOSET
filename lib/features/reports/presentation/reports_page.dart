@@ -9,6 +9,7 @@ import '../../../core/services/reports.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/utils/search.dart';
 import '../../../core/widgets/ui_kit.dart';
 
 /// Everything the owner and the accountant need out of the till.
@@ -28,10 +29,25 @@ class _ReportsPageState extends State<ReportsPage> {
   bool _loading = true;
   int _tab = 0;
 
+  /// Filters the sales register. The register is the one report a shopkeeper
+  /// actually hunts through — "which bill was that refund against?" — and it
+  /// is the longest table on the page, so it gets a box of its own rather
+  /// than making somebody scroll.
+  late final TextEditingController _registerSearch;
+
   @override
   void initState() {
     super.initState();
+    _registerSearch = TextEditingController(
+      text: _store.consumePendingGlobalQuery(),
+    );
     _load();
+  }
+
+  @override
+  void dispose() {
+    _registerSearch.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -231,47 +247,88 @@ class _ReportsPageState extends State<ReportsPage> {
     onSelectionChanged: (s) => setState(() => _tab = s.single),
   );
 
-  Widget _registerCard(BuildContext context, ReportBundle b) => SectionCard(
-    title: 'Sales register — ${b.range.label}',
-    actions: [_exportButton('sales-register', () => _registerCsv(b))],
-    child: _scrollTable(
-      const [
-        'Bill',
-        'Date',
-        'Customer',
-        'GSTIN',
-        'Taxable',
-        'CGST',
-        'SGST',
-        'IGST',
-        'Total',
-        'Paid by',
-        'Sold by',
+  Widget _registerCard(BuildContext context, ReportBundle b) {
+    final query = _registerSearch.text.trim().toLowerCase();
+    final register = b.register.where((r) {
+      if (query.isEmpty) return true;
+      return AppSearch.matches(
+        '${r.receiptNumber} ${r.customerName} ${r.customerGstin ?? ''} '
+        '${r.paymentMethod} ${r.soldBy}',
+        query,
+      );
+    }).toList();
+
+    return SectionCard(
+      title: 'Sales register — ${b.range.label}',
+      actions: [
+        SizedBox(
+          width: 260,
+          child: TextField(
+            controller: _registerSearch,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              isDense: true,
+              prefixIcon: const Icon(Icons.search_rounded, size: 18),
+              hintText: 'Bill number, customer or GSTIN',
+              suffixIcon: _registerSearch.text.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Clear',
+                      icon: const Icon(Icons.close_rounded, size: 16),
+                      onPressed: () => setState(_registerSearch.clear),
+                    ),
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        _exportButton('sales-register', () => _registerCsv(b)),
       ],
-      [
-        for (final r in b.register)
-          [
-            r.receiptNumber,
-            AppFormatters.dateTime(r.soldAt),
-            r.customerName,
-            r.customerGstin ?? '—',
-            AppFormatters.currency(r.taxableValue),
-            AppFormatters.currency(r.cgst),
-            AppFormatters.currency(r.sgst),
-            AppFormatters.currency(r.igst),
-            AppFormatters.currency(r.grandTotal),
-            r.paymentMethod,
-            r.soldBy,
-          ],
-      ],
-      empty: EmptyState(
-        icon: Icons.receipt_long_outlined,
-        title: 'No bills in ${b.range.label.toLowerCase()}',
-        message:
-            'Pick a wider date range above, or ring a sale up at the counter.',
+      child: _scrollTable(
+        const [
+          'Bill',
+          'Date',
+          'Customer',
+          'GSTIN',
+          'Taxable',
+          'CGST',
+          'SGST',
+          'IGST',
+          'Total',
+          'Paid by',
+          'Sold by',
+        ],
+        [
+          for (final r in register)
+            [
+              r.receiptNumber,
+              AppFormatters.dateTime(r.soldAt),
+              r.customerName,
+              r.customerGstin ?? '—',
+              AppFormatters.currency(r.taxableValue),
+              AppFormatters.currency(r.cgst),
+              AppFormatters.currency(r.sgst),
+              AppFormatters.currency(r.igst),
+              AppFormatters.currency(r.grandTotal),
+              r.paymentMethod,
+              r.soldBy,
+            ],
+        ],
+        empty: EmptyState(
+          icon: query.isEmpty
+              ? Icons.receipt_long_outlined
+              : Icons.search_off_rounded,
+          title: query.isEmpty
+              ? 'No bills in ${b.range.label.toLowerCase()}'
+              : 'No bill matches "${_registerSearch.text.trim()}"',
+          message: query.isEmpty
+              ? 'Pick a wider date range above, or ring a sale up at the '
+                    'counter.'
+              : 'Check the number, or widen the date range above — the '
+                    'register only searches the period shown.',
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   Widget _gstCard(BuildContext context, ReportBundle b) => SectionCard(
     title: 'GST by rate — ${b.range.label}',
