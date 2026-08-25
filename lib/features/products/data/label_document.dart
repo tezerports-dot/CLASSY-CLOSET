@@ -79,7 +79,6 @@ class LabelOptions {
 Future<Uint8List> buildLabelSheet({
   required List<LabelRequest> requests,
   required LabelSheet sheet,
-  required StoreProfile? profile,
   LabelOptions options = const LabelOptions(),
 }) async {
   // Flatten copies out, so a request for 12 of one design fills 12 cells.
@@ -98,7 +97,7 @@ Future<Uint8List> buildLabelSheet({
         pw.Page(
           pageFormat: sheet.pageFormat,
           margin: const pw.EdgeInsets.all(2),
-          build: (context) => _label(product, profile, options, sheet),
+          build: (context) => _label(product, options, sheet),
         ),
       );
     }
@@ -115,8 +114,7 @@ Future<Uint8List> buildLabelSheet({
           crossAxisCount: sheet.columns,
           childAspectRatio: sheet.widthMm / sheet.heightMm,
           children: [
-            for (final product in page)
-              _label(product, profile, options, sheet),
+            for (final product in page) _label(product, options, sheet),
           ],
         ),
       ),
@@ -134,7 +132,6 @@ Future<Uint8List> buildLabelSheet({
 Future<Uint8List> buildLabelPreview({
   required ProductRecord product,
   required LabelSheet sheet,
-  required StoreProfile? profile,
   LabelOptions options = const LabelOptions(),
 }) async {
   final document = pw.Document();
@@ -145,15 +142,22 @@ Future<Uint8List> buildLabelPreview({
         sheet.heightMm * PdfPageFormat.mm,
       ),
       margin: const pw.EdgeInsets.all(2),
-      build: (context) => _label(product, profile, options, sheet),
+      build: (context) => _label(product, options, sheet),
     ),
   );
   return document.save();
 }
 
+/// The tag itself.
+///
+/// Note what is *not* a parameter: the shop profile. The label is drawn from
+/// the garment in front of it and the stock size chosen in the dialog, and
+/// from nothing that is stored. It used to take a [StoreProfile] and ignore
+/// it, which kept alive a reasonable but wrong suspicion — that a saved
+/// setting somewhere was putting the shop name and the MRP back on the tag.
+/// Nothing persisted can change this label; only a different build can.
 pw.Widget _label(
   ProductRecord product,
-  StoreProfile? profile,
   LabelOptions options,
   LabelSheet sheet,
 ) {

@@ -284,7 +284,15 @@ class BackupService {
     }
   }
 
-  Future<Directory> _dataDirectory() async {
+  /// Where the shop's own data lives: the database, the brand image, the
+  /// product photos and the scanned supplier invoices.
+  ///
+  /// Deliberately outside the program folder, which is why it survives an
+  /// uninstall and why an upgrade keeps the logins, the settings and the
+  /// books. Losing a shop's ledger because the program was reinstalled would
+  /// be far worse than keeping data it no longer wants — Settings → Reset is
+  /// the way to clear it on purpose.
+  Future<Directory> dataDirectory() async {
     final support = await getApplicationSupportDirectory();
     final folder = Directory(p.join(support.path, 'ClassyCloset'));
     if (!folder.existsSync()) folder.createSync(recursive: true);
@@ -308,7 +316,7 @@ class BackupService {
     try {
       await _db.customStatement('PRAGMA wal_checkpoint(TRUNCATE)');
 
-      final source = await _dataDirectory();
+      final source = await dataDirectory();
       final archive = Archive();
       var count = 0;
 
@@ -398,7 +406,7 @@ class BackupService {
     try {
       final bytes = await File(zipPath).readAsBytes();
       final archive = ZipDecoder().decodeBytes(bytes);
-      final target = await _dataDirectory();
+      final target = await dataDirectory();
 
       final safetyCopy = Directory(
         '${target.path}-before-restore-'

@@ -5,8 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/pdf_text.dart';
 
 void main() {
-  const profile = StoreProfile(storeName: 'Classy Closet', currencySymbol: '₹');
-
   ProductRecord unit(String sku, {String barcode = '', String size = 'M'}) =>
       ProductRecord(
         id: sku.hashCode,
@@ -37,7 +35,6 @@ void main() {
     final bytes = await buildLabelSheet(
       requests: [LabelRequest(product: unit('KRT-M'), copies: 10)],
       sheet: LabelSheet.a4_65,
-      profile: profile,
     );
 
     expect(bytes, isNotEmpty);
@@ -51,7 +48,6 @@ void main() {
       final bytes = await buildLabelSheet(
         requests: const [],
         sheet: LabelSheet.a4_65,
-        profile: profile,
       );
 
       expect(bytes, isNotEmpty);
@@ -64,12 +60,10 @@ void main() {
     final twoPages = await buildLabelSheet(
       requests: [LabelRequest(product: unit('KRT-M'), copies: 70)],
       sheet: LabelSheet.a4_65,
-      profile: profile,
     );
     final onePage = await buildLabelSheet(
       requests: [LabelRequest(product: unit('KRT-M'), copies: 10)],
       sheet: LabelSheet.a4_65,
-      profile: profile,
     );
 
     expect(twoPages.length, greaterThan(onePage.length));
@@ -82,7 +76,6 @@ void main() {
           LabelRequest(product: unit('KRT-$size', size: size), copies: 3),
       ],
       sheet: LabelSheet.a4_24,
-      profile: profile,
     );
 
     expect(bytes, isNotEmpty);
@@ -92,7 +85,6 @@ void main() {
     final bytes = await buildLabelSheet(
       requests: [LabelRequest(product: unit('KRT-M'), copies: 3)],
       sheet: LabelSheet.roll50,
-      profile: profile,
     );
 
     expect(bytes, isNotEmpty);
@@ -105,7 +97,6 @@ void main() {
         LabelRequest(product: unit('SKU-ONLY', barcode: ''), copies: 1),
       ],
       sheet: LabelSheet.a4_24,
-      profile: profile,
     );
 
     expect(bytes, isNotEmpty);
@@ -117,7 +108,6 @@ void main() {
     final bytes = await buildLabelSheet(
       requests: [LabelRequest(product: unit('KRT-M'), copies: 2)],
       sheet: LabelSheet.a4_24,
-      profile: profile,
       options: const LabelOptions(showProductName: false, showVariant: false),
     );
 
@@ -140,7 +130,6 @@ void main() {
             ),
           ],
           sheet: LabelSheet.a4_65,
-          profile: profile,
         );
         final text = pdfText(bytes);
 
@@ -171,7 +160,6 @@ void main() {
             ),
           ],
           sheet: sheet,
-          profile: profile,
         );
         expect(
           pdfText(bytes),
@@ -187,7 +175,6 @@ void main() {
       final bytes = await buildLabelSheet(
         requests: [LabelRequest(product: unit('SKU-ONLY'), copies: 1)],
         sheet: LabelSheet.a4_24,
-        profile: profile,
       );
       expect(pdfText(bytes), contains('SKU-ONLY'));
     });
@@ -201,7 +188,6 @@ void main() {
           ),
         ],
         sheet: LabelSheet.a4_24,
-        profile: profile,
         options: const LabelOptions(showProductName: false, showVariant: false),
       );
       final text = pdfText(bytes);
@@ -216,7 +202,6 @@ void main() {
       final preview = await buildLabelPreview(
         product: unit('KRT-M', barcode: '890123456789'),
         sheet: LabelSheet.a4_65,
-        profile: profile,
       );
       final text = pdfText(preview);
 
@@ -226,13 +211,23 @@ void main() {
     });
   });
 
-  test('no store profile is handled', () async {
+  test('the shop profile cannot reach the label at all', () async {
+    // There is no profile to pass any more. The tag is a function of the
+    // garment and the stock size, so no saved setting — and no database
+    // carried over from an older install — can put the shop name or the MRP
+    // back on it. Only a different build can change this label.
     final bytes = await buildLabelSheet(
-      requests: [LabelRequest(product: unit('KRT-M'), copies: 1)],
+      requests: [
+        LabelRequest(
+          product: unit('KRT-M', barcode: '890123456789'),
+          copies: 1,
+        ),
+      ],
       sheet: LabelSheet.a4_65,
-      profile: null,
     );
+    final text = pdfText(bytes);
 
-    expect(bytes, isNotEmpty);
+    expect(text, contains('890123456789'));
+    expect(text, isNot(contains('Classy Closet')));
   });
 }
