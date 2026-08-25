@@ -15,7 +15,6 @@ import '../utils/formatters.dart';
 import 'gst.dart';
 import 'held_bills.dart';
 import 'permissions.dart';
-import 'pos_terminal.dart';
 import 'printer_service.dart';
 import 'reports.dart';
 import 'returns_and_shifts.dart';
@@ -476,8 +475,6 @@ class SaleRecord {
     this.upiAmount = 0,
     this.customerGstin,
     this.placeOfSupply,
-    this.paymentReference,
-    this.paymentTerminal,
   });
   final String receipt;
   final String customerName;
@@ -495,11 +492,6 @@ class SaleRecord {
   final double upiAmount;
   final String? customerGstin;
   final String? placeOfSupply;
-
-  /// What the card machine or UPI app called the transaction that paid this
-  /// bill, so a disputed charge can be matched back to the sale.
-  final String? paymentReference;
-  final String? paymentTerminal;
 
   double get taxTotal => cgst + sgst + igst;
   bool get isInterState => igst > 0;
@@ -564,7 +556,6 @@ class RetailStore extends ChangeNotifier {
   static const storeProfileKey = 'store_profile';
   static const gstSettingsKey = 'gst_settings';
   static const printerSettingsKey = 'printer_settings';
-  static const posTerminalSettingsKey = 'pos_terminal_settings';
   static const invoiceCounterKey = 'invoice_counter';
 
   final AppDatabase _db;
@@ -572,7 +563,6 @@ class RetailStore extends ChangeNotifier {
   StoreProfile? storeProfile;
   GstSettings gstSettings = const GstSettings();
   PrinterSettings printerSettings = const PrinterSettings();
-  PosTerminalSettings posTerminalSettings = const PosTerminalSettings();
   final products = <ProductRecord>[];
   final styles = <StyleRecord>[];
   final customers = <CustomerRecord>[];
@@ -679,7 +669,6 @@ class RetailStore extends ChangeNotifier {
       _loadStoreProfile(),
       _loadGstSettings(),
       _loadPrinterSettings(),
-      _loadPosTerminalSettings(),
       _loadLookups(),
       _loadSuppliers(),
       _loadProducts(),
@@ -1656,8 +1645,6 @@ class RetailStore extends ChangeNotifier {
     double cashAmount = 0,
     double cardAmount = 0,
     double upiAmount = 0,
-    String paymentReference = '',
-    String paymentTerminal = '',
   }) async {
     final snapshot = List<CartLine>.from(cart);
     if (snapshot.isEmpty) {
@@ -1715,14 +1702,6 @@ class RetailStore extends ChangeNotifier {
                     storeProfile?.effectiveStateCode,
               ),
               shiftId: Value(openShift?.id),
-              paymentReference: Value(
-                paymentReference.trim().isEmpty
-                    ? null
-                    : paymentReference.trim(),
-              ),
-              paymentTerminal: Value(
-                paymentTerminal.trim().isEmpty ? null : paymentTerminal.trim(),
-              ),
               customerGstin: Value(
                 (customer?.gstin.trim().isNotEmpty ?? false)
                     ? customer!.gstin.trim()
@@ -1816,12 +1795,6 @@ class RetailStore extends ChangeNotifier {
         customerGstin: customer?.gstin,
         placeOfSupply:
             customer?.effectiveStateCode ?? storeProfile?.effectiveStateCode,
-        paymentReference: paymentReference.trim().isEmpty
-            ? null
-            : paymentReference.trim(),
-        paymentTerminal: paymentTerminal.trim().isEmpty
-            ? null
-            : paymentTerminal.trim(),
       );
     });
     cart.clear();
@@ -2639,6 +2612,15 @@ class RetailStore extends ChangeNotifier {
   /// undoing every movement from the end of the window onwards. Doing it that
   /// way means the closing figure always agrees with the balance shown on the
   /// customers screen, which is the number anyone will check it against.
+  /// How a bill was paid, in words a customer reads on their statement.
+  static String _methodLabel(String method) => switch (method) {
+    'cash' => 'cash',
+    'card' => 'card',
+    'upi' => 'UPI',
+    'split' => 'split tender',
+    _ => method,
+  };
+
   Future<StatementBundle> buildStatement({
     required PartyKind kind,
     required int partyId,
@@ -2659,20 +2641,45 @@ class RetailStore extends ChangeNotifier {
       gstin = customer.gstin;
       balanceNow = customer.balance;
 
-      final sales = await (_db.select(
-        _db.sales,
-      )..where((s) => s.customerId.equals(partyId))).get();
+      // Every bill this customer bought, not just the ones left unpaid.
+      //
+      // This used to skip any sale where grandTotal == paidAmount, so a
+      // customer who always pays cash had a completely empty statement — the
+      // one thing they came to the counter to see. A statement is a purchase
+      // history first and a debt ledger second, so the bill goes on as a
+      // debit for what was charged and the money taken at the till goes on as
+      // a credit. The running balance is unchanged: debit less credit is
+      // still exactly what is outstanding on that bill.
+      final sales =
+          await (_db.select(_db.sales)
+                ..where((s) => s.customerId.equals(partyId))
+                ..orderBy([(s) => OrderingTerm.asc(s.soldAt)]))
+              .get();
       for (final sale in sales) {
-        final unpaid = _money(sale.grandTotal - sale.paidAmount);
-        if (unpaid <= 0) continue;
+        final paid = _money(sale.paidAmount);
+        final billed = _money(sale.grandTotal);
         movements.add(
           StatementMovement(
             date: sale.soldAt,
             reference: sale.receiptNumber,
-            description: 'Sale on credit',
-            debit: unpaid,
+            description: paid >= billed
+                ? 'Sale (${_methodLabel(sale.paymentMethod)})'
+                : paid <= 0
+                ? 'Sale on credit'
+                : 'Sale, part paid (${_methodLabel(sale.paymentMethod)})',
+            debit: billed,
           ),
         );
+        if (paid > 0) {
+          movements.add(
+            StatementMovement(
+              date: sale.soldAt,
+              reference: sale.receiptNumber,
+              description: 'Paid at the till',
+              credit: paid,
+            ),
+          );
+        }
       }
 
       final credits = await (_db.select(
@@ -3579,29 +3586,6 @@ class RetailStore extends ChangeNotifier {
         : PrinterSettings.decode(row.valueJson);
   }
 
-  Future<void> _loadPosTerminalSettings() async {
-    final row = await (_db.select(
-      _db.settings,
-    )..where((s) => s.key.equals(posTerminalSettingsKey))).getSingleOrNull();
-    posTerminalSettings = row == null
-        ? const PosTerminalSettings()
-        : PosTerminalSettings.decode(row.valueJson);
-  }
-
-  Future<void> savePosTerminalSettings(PosTerminalSettings settings) async {
-    await _db
-        .into(_db.settings)
-        .insertOnConflictUpdate(
-          SettingsCompanion.insert(
-            key: posTerminalSettingsKey,
-            valueJson: settings.encode(),
-          ),
-        );
-    posTerminalSettings = settings;
-    await _audit('UPSERT', 'settings', null, 'Updated card machine settings');
-    notifyListeners();
-  }
-
   Future<void> savePrinterSettings(PrinterSettings settings) async {
     await _db
         .into(_db.settings)
@@ -3869,8 +3853,6 @@ class RetailStore extends ChangeNotifier {
             upiAmount: s.upiAmount,
             customerGstin: s.customerGstin,
             placeOfSupply: s.placeOfSupply,
-            paymentReference: s.paymentReference,
-            paymentTerminal: s.paymentTerminal,
           ),
         ),
       );
@@ -4043,8 +4025,6 @@ class RetailStore extends ChangeNotifier {
       upiAmount: row.upiAmount,
       customerGstin: row.customerGstin,
       placeOfSupply: row.placeOfSupply,
-      paymentReference: row.paymentReference,
-      paymentTerminal: row.paymentTerminal,
     );
 
     final paymentLabel = switch (row.paymentMethod) {

@@ -50,8 +50,7 @@ class _SalesPageState extends State<SalesPage> {
         final rows = _store.sales
             .where(
               (s) => AppSearch.matches(
-                '${s.receipt} ${s.customerName} '
-                '${s.paymentReference ?? ''} ${s.paymentMethod}',
+                '${s.receipt} ${s.customerName} ${s.paymentMethod}',
                 query,
               ),
             )
@@ -82,8 +81,7 @@ class _SalesPageState extends State<SalesPage> {
                       onChanged: (_) => setState(() {}),
                       decoration: InputDecoration(
                         prefixIcon: const Icon(Icons.search_rounded, size: 18),
-                        hintText:
-                            'Invoice number, customer, or transaction ref',
+                        hintText: 'Invoice number or customer name',
                         suffixIcon: _search.text.isEmpty
                             ? null
                             : IconButton(
@@ -96,13 +94,12 @@ class _SalesPageState extends State<SalesPage> {
                   ),
                 ],
                 child: AppTable(
-                  minWidth: 940,
+                  minWidth: 820,
                   columns: const [
                     DataColumn(label: Text('INVOICE')),
                     DataColumn(label: Text('WHEN')),
                     DataColumn(label: Text('CUSTOMER')),
                     DataColumn(label: Text('METHOD')),
-                    DataColumn(label: Text('REFERENCE')),
                     DataColumn(label: Text('TOTAL'), numeric: true),
                   ],
                   empty: EmptyState(
@@ -138,14 +135,6 @@ class _SalesPageState extends State<SalesPage> {
                           ),
                           DataCell(Text(sale.customerName)),
                           DataCell(_MethodPill(method: sale.paymentMethod)),
-                          DataCell(
-                            (sale.paymentReference ?? '').isEmpty
-                                ? const Text(
-                                    '—',
-                                    style: TextStyle(color: AppColors.inkFaint),
-                                  )
-                                : CodeText(sale.paymentReference!, size: 12),
-                          ),
                           DataCell(MoneyText(sale.total, size: 13)),
                         ],
                       ),
