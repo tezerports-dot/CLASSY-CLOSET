@@ -1671,14 +1671,27 @@ class RetailStore extends ChangeNotifier {
     if (snapshot.isEmpty) {
       throw StateError('Cannot check out an empty cart');
     }
+    // The one bill-level discount is shared across the lines *before* their
+    // tax is worked out. Storing each row taxed on its full shelf value and
+    // deducting the discount only in the bill footer overstated the GST on
+    // every discounted sale — the rows are what the reports add up, so the
+    // shop would have been remitting tax on money it never took.
+    final shares = allocateDiscount([
+      for (final line in snapshot) line.total,
+    ], _billDiscount.clamp(0, cartGrossTotal).toDouble());
+    final interState = _isInterState(customer);
     final taxes = [
-      for (final line in snapshot) lineTaxFor(line, customer: customer),
+      for (var i = 0; i < snapshot.length; i++)
+        computeLineTax(
+          lineTotal: _money(snapshot[i].total - shares[i]),
+          ratePercent: gstRateFor(snapshot[i].product),
+          priceIncludesTax: gstSettings.pricesIncludeTax,
+          interState: interState,
+        ),
     ];
 
-    // Bill-level totals — taxable and tax already reflect the bill discount.
-    // Per-line values below are computed without it, so each SaleItem row
-    // still reads as its own item's math; SaleRow.discountTotal explains the
-    // difference to the customer-facing total.
+    // Bill-level totals. These and the per-line rows above now come off the
+    // same discounted values, so the rows sum to the bill.
     final totals = cartTotals(customer: customer);
     final taxableTotal = totals.taxable;
     final cgst = totals.cgst;
@@ -1742,10 +1755,10 @@ class RetailStore extends ChangeNotifier {
                 productId: line.product.id,
                 quantity: line.quantity.toDouble(),
                 unitPrice: line.product.sellingPrice,
-                discountAmount: Value(line.discount),
+                discountAmount: Value(_money(line.discount + shares[i])),
                 taxAmount: Value(tax.taxAmount),
                 lineTotal: gstSettings.pricesIncludeTax
-                    ? line.total
+                    ? _money(line.total - shares[i])
                     : tax.grossValue,
                 hsnCode: Value(_hsnFor(line.product)),
                 taxRate: Value(tax.ratePercent),

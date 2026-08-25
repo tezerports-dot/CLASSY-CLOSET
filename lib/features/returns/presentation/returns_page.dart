@@ -338,6 +338,7 @@ class _ReturnsPageState extends State<ReturnsPage> {
           children: [
             Expanded(
               child: DropdownButtonFormField<RefundMethod>(
+                isExpanded: true,
                 initialValue: _refundMethod,
                 decoration: const InputDecoration(labelText: 'Refund by'),
                 items: [

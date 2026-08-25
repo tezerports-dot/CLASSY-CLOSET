@@ -73,6 +73,7 @@ class _PrinterSettingsFormState extends State<PrinterSettingsForm> {
             ),
           ),
         DropdownButtonFormField<ReceiptPrintMode>(
+          isExpanded: true,
           initialValue: _settings.mode,
           decoration: const InputDecoration(
             labelText: 'How bills print',
@@ -138,6 +139,7 @@ class _PrinterSettingsFormState extends State<PrinterSettingsForm> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<ThermalPaper>(
+                  isExpanded: true,
                   initialValue: _settings.paper,
                   decoration: const InputDecoration(labelText: 'Paper width'),
                   items: [
@@ -157,6 +159,7 @@ class _PrinterSettingsFormState extends State<PrinterSettingsForm> {
               SizedBox(
                 width: 140,
                 child: DropdownButtonFormField<int>(
+                  isExpanded: true,
                   initialValue: _settings.copies,
                   decoration: const InputDecoration(labelText: 'Copies'),
                   items: [
@@ -190,6 +193,7 @@ class _PrinterSettingsFormState extends State<PrinterSettingsForm> {
           ),
           if (_settings.openDrawerOnCashSale)
             DropdownButtonFormField<int>(
+              isExpanded: true,
               initialValue: _settings.drawerPin,
               decoration: const InputDecoration(
                 labelText: 'Drawer socket pin',

@@ -440,6 +440,7 @@ class _HardwarePageState extends State<HardwarePage> {
               Expanded(
                 flex: 2,
                 child: DropdownButtonFormField<ReceiptPrintMode>(
+                  isExpanded: true,
                   initialValue: settings.mode,
                   decoration: const InputDecoration(
                     labelText: 'How bills print',
@@ -483,6 +484,7 @@ class _HardwarePageState extends State<HardwarePage> {
               const SizedBox(width: AppSpacing.base),
               Expanded(
                 child: DropdownButtonFormField<ThermalPaper>(
+                  isExpanded: true,
                   initialValue: settings.paper,
                   decoration: const InputDecoration(labelText: 'Roll'),
                   items: [
@@ -576,6 +578,7 @@ class _HardwarePageState extends State<HardwarePage> {
               SizedBox(
                 width: 240,
                 child: DropdownButtonFormField<int>(
+                  isExpanded: true,
                   initialValue: settings.drawerPin,
                   decoration: const InputDecoration(
                     labelText: 'Socket pin',

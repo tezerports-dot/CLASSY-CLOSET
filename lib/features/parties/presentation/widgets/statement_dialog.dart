@@ -86,6 +86,7 @@ class _StatementDialogState extends State<StatementDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             DropdownButtonFormField<DateRange>(
+              isExpanded: true,
               initialValue: _range,
               decoration: const InputDecoration(labelText: 'Period'),
               items: [

@@ -234,3 +234,36 @@ bool isValidGstinFormat(String? gstin) {
   }
   return indianStateCodes.containsKey(value.substring(0, 2));
 }
+
+/// Shares one bill-level discount out across the values it was taken off.
+///
+/// GST is owed on what the customer actually pays. A bill discount that is
+/// only subtracted in the footer leaves every line — and every stored
+/// sale_item row, and therefore every GST figure in the reports — taxed on the
+/// shelf price, so the shop would remit tax on money it never collected.
+///
+/// The share is proportional to line value, and the last line absorbs whatever
+/// rounding leaves behind, so the shares always sum to exactly [billDiscount]
+/// and the printed lines always add up to the bill.
+///
+/// Returns one share per entry of [lineTotals], in the same order.
+List<double> allocateDiscount(List<double> lineTotals, double billDiscount) {
+  double round(double v) => (v * 100).round() / 100;
+
+  final gross = lineTotals.fold<double>(0, (sum, v) => sum + v);
+  if (lineTotals.isEmpty || gross <= 0 || billDiscount <= 0) {
+    return List<double>.filled(lineTotals.length, 0);
+  }
+  final discount = round(billDiscount.clamp(0, gross).toDouble());
+
+  final shares = <double>[];
+  var remaining = discount;
+  for (var i = 0; i < lineTotals.length; i++) {
+    final share = i == lineTotals.length - 1
+        ? remaining
+        : round(discount * lineTotals[i] / gross);
+    shares.add(share);
+    remaining = round(remaining - share);
+  }
+  return shares;
+}
