@@ -266,7 +266,6 @@ class BackupService {
       'Cash',
       'Card',
       'UPI',
-      'Txn reference',
       'Sold at',
     ]);
     for (final r in rows) {
@@ -280,7 +279,6 @@ class BackupService {
         r.cashAmount,
         r.cardAmount,
         r.upiAmount,
-        r.paymentReference,
         r.soldAt.toIso8601String(),
       ]);
     }

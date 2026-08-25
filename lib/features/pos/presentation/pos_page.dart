@@ -7,7 +7,6 @@ import 'package:printing/printing.dart';
 import '../../../app/di/injection.dart';
 import '../../../core/services/escpos.dart';
 import '../../../core/services/permissions.dart';
-import '../../../core/services/pos_terminal.dart';
 import '../../../core/services/printer_service.dart';
 import '../../../core/services/receipt_logo.dart';
 import '../../../core/services/retail_store.dart';
@@ -21,6 +20,19 @@ import '../data/repositories/pos_repository.dart';
 import '../data/thermal_receipt.dart';
 import 'widgets/bill_preview_dialog.dart';
 import 'widgets/held_bills_sheet.dart';
+
+/// Which rail the non-cash half of a split goes down.
+///
+/// The shop generates the QR or swipes the card on its own standalone machine
+/// and types the split by hand — the app records which one it was so the
+/// day's takings break down correctly, and nothing more.
+enum _SplitTender {
+  card('Card'),
+  upi('UPI QR');
+
+  const _SplitTender(this.label);
+  final String label;
+}
 
 enum _PaymentMode {
   cash('Cash', Icons.payments_rounded),
@@ -51,7 +63,6 @@ class _PosPageState extends State<PosPage> {
   late final RetailStore _store;
   late final PosRepository _posRepository;
   late final PrinterService _printerService;
-  late final PosTerminalService _terminalService;
 
   final _productSearch = TextEditingController();
 
@@ -64,7 +75,6 @@ class _PosPageState extends State<PosPage> {
   /// The non-cash half of a split, whichever rail it goes down.
   final _splitCard = TextEditingController();
   final _billDiscount = TextEditingController();
-  final _paymentReference = TextEditingController();
 
   CustomerRecord? _selectedCustomer;
   _PaymentMode _paymentMode = _PaymentMode.cash;
@@ -72,19 +82,16 @@ class _PosPageState extends State<PosPage> {
   /// Which rail the non-cash part of a split goes down. Only one can be used:
   /// the customer walks to the card machine once, and it either takes their
   /// card or shows them a QR — it cannot do both for one bill.
-  PosTenderKind _splitTender = PosTenderKind.card;
+  _SplitTender _splitTender = _SplitTender.card;
   InvoicePaper _paper = InvoicePaper.roll80;
   bool _checkingOut = false;
 
   /// What the card machine is doing right now, shown under the payment
   /// buttons so the cashier is never left watching a spinner with no idea
   /// whether the customer has tapped yet.
-  String? _terminalStatus;
-  bool _terminalBusy = false;
 
   /// Set once the terminal has approved this bill, so a retry after a failed
   /// print does not charge the customer twice.
-  PosTerminalResult? _approvedPayment;
 
   /// Kept so the counter can reprint the bill it just handed over.
   InvoiceData? _lastInvoice;
@@ -105,7 +112,6 @@ class _PosPageState extends State<PosPage> {
     _store = getIt<RetailStore>();
     _posRepository = getIt<PosRepository>();
     _printerService = getIt<PrinterService>();
-    _terminalService = getIt<PosTerminalService>();
     _splitCash.addListener(_onPaymentChanged);
     _splitCard.addListener(_onPaymentChanged);
     _refreshNextBillNumber();
@@ -125,7 +131,6 @@ class _PosPageState extends State<PosPage> {
     _splitCash.dispose();
     _splitCard.dispose();
     _billDiscount.dispose();
-    _paymentReference.dispose();
     super.dispose();
   }
 
@@ -149,45 +154,26 @@ class _PosPageState extends State<PosPage> {
             final bill = _billPanel(context, total);
 
             if (stacked) {
-              // Below the desktop breakpoint the catalogue tucks under the
-              // bill — the shopkeeper still reads the bill first.
+              // Below the desktop breakpoint the bill goes underneath, but it
+              // keeps its own pinned footer so checkout stays reachable.
               return Column(
                 children: [
-                  Expanded(child: bill),
+                  Expanded(child: catalogue),
                   SizedBox(
-                    height: (constraints.maxHeight * 0.35).clamp(220.0, 320.0),
-                    child: Container(
-                      decoration: const BoxDecoration(
-                        border: Border(
-                          top: BorderSide(color: AppColors.border),
-                        ),
-                        color: AppColors.surface,
-                      ),
-                      child: catalogue,
-                    ),
+                    height: (constraints.maxHeight * 0.52).clamp(320.0, 520.0),
+                    child: bill,
                   ),
                 ],
               );
             }
-            // Bill fills the counter — that is the thing the cashier is
-            // reading and the customer is checking. The catalogue is a
-            // scan-first sidebar on the right: the scanner types a barcode
-            // and the item drops onto the bill without anybody looking at
-            // the tile grid.
+            // Catalogue fills the middle, running bill down the right-hand
+            // side. The assistant works left to right: find the garment, watch
+            // it land on the bill.
             return Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(child: bill),
-                SizedBox(
-                  width: 320,
-                  child: Container(
-                    decoration: const BoxDecoration(
-                      border: Border(left: BorderSide(color: AppColors.border)),
-                      color: AppColors.surface,
-                    ),
-                    child: catalogue,
-                  ),
-                ),
+                Expanded(child: catalogue),
+                SizedBox(width: 400, child: bill),
               ],
             );
           },
@@ -636,7 +622,6 @@ class _PosPageState extends State<PosPage> {
 
   Widget _paymentControls(BuildContext context, double total) {
     final theme = Theme.of(context);
-    final terminal = _store.posTerminalSettings;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -650,13 +635,7 @@ class _PosPageState extends State<PosPage> {
                   child: _ModeButton(
                     mode: mode,
                     selected: _paymentMode == mode,
-                    onTap: () => setState(() {
-                      _paymentMode = mode;
-                      // Switching rails invalidates anything the machine
-                      // already approved for the previous one.
-                      _approvedPayment = null;
-                      _terminalStatus = null;
-                    }),
+                    onTap: () => setState(() => _paymentMode = mode),
                   ),
                 ),
                 if (mode != _PaymentMode.values.last)
@@ -729,28 +708,6 @@ class _PosPageState extends State<PosPage> {
               ),
             ),
         ],
-        if (_needsTerminal) ...[
-          const SizedBox(height: AppSpacing.sm),
-          if (terminal.isConfigured && _terminalService.isSupported)
-            _terminalPanel(context)
-          else
-            SizedBox(
-              height: 38,
-              child: TextField(
-                controller: _paymentReference,
-                onChanged: (_) => setState(() {}),
-                decoration: const InputDecoration(
-                  labelText: 'Transaction reference (optional)',
-                  hintText: "Copy it off the machine's slip",
-                  helperText:
-                      'Connect the Paytm machine under Hardware and this '
-                      'fills in by itself.',
-                  helperStyle: TextStyle(fontSize: 10),
-                  isDense: true,
-                ),
-              ),
-            ),
-        ],
       ],
     );
   }
@@ -760,73 +717,25 @@ class _PosPageState extends State<PosPage> {
     height: 30,
     child: Row(
       children: [
-        for (final kind in PosTenderKind.values) ...[
+        for (final kind in _SplitTender.values) ...[
           Expanded(
             child: _TenderButton(
               label: kind.label,
-              icon: kind == PosTenderKind.card
+              icon: kind == _SplitTender.card
                   ? Icons.credit_card_rounded
                   : Icons.qr_code_2_rounded,
               selected: _splitTender == kind,
               onTap: () => setState(() {
                 _splitTender = kind;
-                _approvedPayment = null;
-                _terminalStatus = null;
               }),
             ),
           ),
-          if (kind != PosTenderKind.values.last)
+          if (kind != _SplitTender.values.last)
             const SizedBox(width: AppSpacing.xxs),
         ],
       ],
     ),
   );
-
-  /// What the card machine is doing, and the reference it gave back.
-  Widget _terminalPanel(BuildContext context) {
-    final theme = Theme.of(context);
-    final approved = _approvedPayment?.isApproved ?? false;
-    final reference = _paymentReference.text.trim();
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.base,
-        vertical: AppSpacing.sm,
-      ),
-      decoration: BoxDecoration(
-        color: approved ? AppColors.goldWash : AppColors.surface,
-        border: Border.all(
-          color: approved ? AppColors.goldWashBorder : AppColors.border,
-        ),
-        borderRadius: AppRadii.inputBorder,
-      ),
-      child: Row(
-        children: [
-          Icon(
-            approved
-                ? Icons.verified_rounded
-                : (_terminalBusy
-                      ? Icons.hourglass_top_rounded
-                      : Icons.point_of_sale_rounded),
-            size: 15,
-            color: approved ? AppColors.goldDeep : AppColors.inkSoft,
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Text(
-              approved
-                  ? 'Paid on the machine · $reference'
-                  : (_terminalStatus ??
-                        'Checkout sends the total to the Paytm machine and '
-                            'waits for it to approve.'),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: approved ? AppColors.goldDeep : AppColors.inkSoft,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _amountRow(String label, double value, {bool signed = false}) =>
       Padding(
@@ -952,32 +861,13 @@ class _PosPageState extends State<PosPage> {
     _PaymentMode.split => _parse(_splitCash.text) + _parse(_splitCard.text),
   };
 
-  /// The part of the bill that goes through the card machine, and down which
-  /// rail. Null when the whole bill is cash and the machine is not involved.
-  PosTenderKind? get _tenderKind => switch (_paymentMode) {
-    _PaymentMode.cash => null,
-    _PaymentMode.card => PosTenderKind.card,
-    _PaymentMode.upi => PosTenderKind.upi,
-    _PaymentMode.split => _parse(_splitCard.text) > 0 ? _splitTender : null,
-  };
-
-  double get _terminalAmount => switch (_paymentMode) {
-    _PaymentMode.cash => 0,
-    _PaymentMode.card || _PaymentMode.upi => _cartTotal,
-    _PaymentMode.split => _parse(_splitCard.text),
-  };
-
-  /// Whether this bill needs a transaction reference at all. Cash never does —
-  /// there is no bank in the middle to give one.
-  bool get _needsTerminal => _tenderKind != null;
-
   String get _paymentLabel => switch (_paymentMode) {
     _PaymentMode.cash => 'Paid by cash',
     _PaymentMode.card => 'Paid by card',
     _PaymentMode.upi => 'Paid by UPI',
     _PaymentMode.split =>
       'Split: cash ${AppFormatters.currency(_parse(_splitCash.text))}, '
-          '${_splitTender == PosTenderKind.card ? 'card' : 'UPI'} '
+          '${_splitTender == _SplitTender.card ? 'card' : 'UPI'} '
           '${AppFormatters.currency(_parse(_splitCard.text))}',
   };
 
@@ -998,13 +888,13 @@ class _PosPageState extends State<PosPage> {
     _PaymentMode.cash || _PaymentMode.upi => 0,
     _PaymentMode.card => _cartTotal,
     _PaymentMode.split =>
-      _splitTender == PosTenderKind.card ? _parse(_splitCard.text) : 0,
+      _splitTender == _SplitTender.card ? _parse(_splitCard.text) : 0,
   };
 
   double get _upiAmountForSale => switch (_paymentMode) {
     _PaymentMode.upi => _cartTotal,
     _PaymentMode.split =>
-      _splitTender == PosTenderKind.upi ? _parse(_splitCard.text) : 0,
+      _splitTender == _SplitTender.upi ? _parse(_splitCard.text) : 0,
     _PaymentMode.cash || _PaymentMode.card => 0,
   };
 
@@ -1051,22 +941,17 @@ class _PosPageState extends State<PosPage> {
   /// Card and UPI need a reference — which the machine supplies, or the
   /// cashier types when there is no machine.
   bool _canCheckout(double total) {
-    if (_checkingOut || _terminalBusy || _store.cart.isEmpty) return false;
+    if (_checkingOut || _store.cart.isEmpty) return false;
     if (_paymentMode == _PaymentMode.split &&
         (_paidAmount - total).abs() >= 0.01) {
       return false;
     }
-    // Reference is stored as typed, empty or not. The old code refused to
-    // check out a card/UPI sale without a reference when the machine was not
-    // configured, which stopped shops that take card payments on a standalone
-    // Paytm machine and reconcile references by hand at end-of-day.
+    // Nothing else to satisfy. The shop takes the money on its own machine
+    // and records which rail it came down; the app does not ask for a bank
+    // reference, because it has no way to verify one and a box nobody fills
+    // in is a box that stops a sale.
     return true;
   }
-
-  /// True when the machine is set up and will be asked for the money, so the
-  /// reference is its job rather than the cashier's.
-  bool get _terminalWillCollect =>
-      _store.posTerminalSettings.isConfigured && _terminalService.isSupported;
 
   double _parse(String value) => double.tryParse(value.trim()) ?? 0;
 
@@ -1081,10 +966,7 @@ class _PosPageState extends State<PosPage> {
     _customerPhone.clear();
     _splitCash.clear();
     _splitCard.clear();
-    _paymentReference.clear();
     _billDiscount.clear();
-    _approvedPayment = null;
-    _terminalStatus = null;
   }
 
   Future<CustomerRecord?> _customerForManualEntry() async {
@@ -1159,14 +1041,10 @@ class _PosPageState extends State<PosPage> {
     setState(() => _checkingOut = true);
     try {
       final receiptLines = List<CartLine>.from(_store.cart);
-      final total = _cartTotal;
       final paymentMethod = _paymentMethodValue;
 
-      // ------------------------------------------------------ take the money
-      final reference = await _collectPayment(total);
-      if (reference == null) return; // Refused, cancelled, or unreachable.
-
-      // ------------------------------------------------------ write the sale
+      // The shop takes the money on its own machine before pressing this —
+      // there is nothing for the app to collect or verify.
       final customer = await _customerForManualEntry();
       final sale = await _posRepository.checkout(
         customer: customer,
@@ -1175,8 +1053,6 @@ class _PosPageState extends State<PosPage> {
         cashAmount: _cashAmountForSale,
         cardAmount: _cardAmountForSale,
         upiAmount: _upiAmountForSale,
-        paymentReference: reference,
-        paymentTerminal: _approvedPayment?.terminalId ?? '',
       );
       final invoice = _invoiceFor(sale, receiptLines, sale.total);
       _resetPaymentInputs();
@@ -1193,65 +1069,6 @@ class _PosPageState extends State<PosPage> {
       if (mounted) _toast(e.message, ok: false);
     } finally {
       if (mounted) setState(() => _checkingOut = false);
-    }
-  }
-
-  /// Gets the payment settled and returns the reference to print on the bill.
-  ///
-  /// Returns an empty string for cash — there is nothing to quote — and null
-  /// when the sale must not go ahead, having already told the cashier why.
-  Future<String?> _collectPayment(double total) async {
-    final tender = _tenderKind;
-    if (tender == null) return '';
-
-    // Already approved on this bill: a failed print or a slip of the mouse
-    // must never put the customer's card through twice.
-    final approved = _approvedPayment;
-    if (approved != null && approved.isApproved) return approved.reference;
-
-    if (!_terminalWillCollect) {
-      final typed = _paymentReference.text.trim();
-      if (typed.isEmpty) {
-        _toast(
-          'Type the reference from the card machine, or connect it under '
-          'Hardware.',
-          ok: false,
-        );
-        return null;
-      }
-      return typed;
-    }
-
-    setState(() {
-      _terminalBusy = true;
-      _terminalStatus = tender == PosTenderKind.upi
-          ? 'Showing the QR on the machine — waiting for the customer to '
-                'scan…'
-          : 'Sent to the machine — waiting for the card…';
-    });
-    try {
-      final result = await _terminalService.collect(
-        settings: _store.posTerminalSettings,
-        amount: _terminalAmount,
-        // The next bill number, quoted to the machine so its own slip and the
-        // shop's bill refer to the same order.
-        reference: await _store.peekNextInvoiceNumber(),
-        tender: tender,
-      );
-      if (!mounted) return null;
-      if (!result.isApproved) {
-        setState(() => _terminalStatus = result.message);
-        _toast(result.message, ok: false);
-        return null;
-      }
-      setState(() {
-        _approvedPayment = result;
-        _paymentReference.text = result.reference;
-        _terminalStatus = result.message;
-      });
-      return result.reference;
-    } finally {
-      if (mounted) setState(() => _terminalBusy = false);
     }
   }
 

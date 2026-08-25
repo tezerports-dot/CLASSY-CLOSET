@@ -136,7 +136,7 @@ pw.Widget _label(
   final nameSize = tiny ? 5.0 : 7.0;
   final priceSize = tiny ? 7.0 : 10.0;
   final codeSize = tiny ? 4.5 : 6.0;
-  final barcodeHeight = tiny ? 16.0 : 24.0;
+  final barcodeHeight = tiny ? 13.0 : 21.0;
 
   return pw.Container(
     padding: const pw.EdgeInsets.symmetric(horizontal: 3, vertical: 2),
@@ -175,22 +175,27 @@ pw.Widget _label(
           height: barcodeHeight,
           drawText: false,
         ),
+        // The number under the bars is what somebody types when the scanner
+        // will not read a creased tag, so it is set to be read across a
+        // counter rather than tucked under the barcode as fine print. Bold,
+        // and spaced out so 8 and B do not get confused at a glance.
         pw.Text(
           _codeFor(product),
-          style: pw.TextStyle(fontSize: codeSize),
+          style: pw.TextStyle(
+            fontSize: codeSize + 2,
+            fontWeight: pw.FontWeight.bold,
+            letterSpacing: 0.4,
+          ),
           maxLines: 1,
         ),
-        // The SKU is the unit's own unique number and it is what someone
-        // types when the scanner cannot read a creased tag. When the label
-        // already carries a barcode the two differ, so both are printed —
-        // otherwise the SKU never reaches the tag and manual lookup has
-        // nothing to go on.
+        // A unit whose barcode differs from its SKU carries both, because
+        // either one will find it at the till.
         if (product.barcode.trim().isNotEmpty &&
             product.sku.trim().isNotEmpty &&
             product.sku.trim() != product.barcode.trim())
           pw.Text(
             product.sku.trim(),
-            style: pw.TextStyle(fontSize: codeSize - 0.5),
+            style: pw.TextStyle(fontSize: codeSize),
             maxLines: 1,
           ),
         if (options.showPrice)

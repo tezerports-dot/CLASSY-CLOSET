@@ -338,7 +338,13 @@ void main() {
       expect(statement.lines.last.description, contains('Payment received'));
     });
 
-    test('a cash sale never appears — nothing was owed', () async {
+    test('a cash sale appears, and settles to nothing owed', () async {
+      // This used to assert the opposite — that a fully-paid bill was left off
+      // the statement entirely. That is wrong for the counter: a customer
+      // asking for "my statement" wants the bills they bought, and a regular
+      // who always pays cash was being handed a blank sheet. The bill now
+      // shows as a debit with the till payment against it, so the history is
+      // there and the balance still lands on zero.
       store.addToCart(store.products.single);
       await store.checkout(
         customer: customer(),
@@ -353,7 +359,9 @@ void main() {
         range: DateRange.thisFinancialYear(),
       );
 
-      expect(statement.isEmpty, isTrue);
+      expect(statement.isEmpty, isFalse);
+      expect(statement.lines.any((l) => l.debit > 0), isTrue);
+      expect(statement.lines.any((l) => l.credit > 0), isTrue);
       expect(statement.closingBalance, 0);
     });
 
@@ -392,6 +400,35 @@ void main() {
         expect(statement.closingBalance, 600);
       },
     );
+
+    test('a cash customer still gets a statement of their bills', () async {
+      // The statement used to skip any bill that was paid in full, so a
+      // customer who always pays cash opened a completely empty statement —
+      // the one thing they came to the counter to see.
+      store.addToCart(store.products.single);
+      await store.checkout(
+        customer: customer(),
+        paid: store.cartGrandTotal(customer: customer()),
+        cashAmount: store.cartGrandTotal(customer: customer()),
+      );
+
+      final statement = await store.buildStatement(
+        kind: PartyKind.customer,
+        partyId: customer().id,
+        range: DateRange.thisFinancialYear(),
+      );
+
+      expect(
+        statement.lines,
+        isNotEmpty,
+        reason: 'a paid-in-full bill still belongs on the statement',
+      );
+      // Billed as a debit, taken as a credit — so the bill is visible and the
+      // balance still lands on nothing owed.
+      expect(statement.totalDebit, greaterThan(0));
+      expect(statement.totalCredit, statement.totalDebit);
+      expect(statement.closingBalance, 0);
+    });
 
     test('a supplier statement shows the delivery and the payment', () async {
       await store.receiveStock(

@@ -229,31 +229,37 @@ void main() {
       expect(sale.profit, closeTo(542.86, 0.01));
     });
 
-    test('the card reference is kept against the bill', () async {
+    test('which rail took the money is kept against the bill', () async {
+      // The shop settles card and UPI on its own standalone machine and types
+      // the split by hand, so the app records the rail and the amount and
+      // asks for no bank reference it cannot verify.
       store.addToCart(dupatta());
 
       final sale = await store.checkout(
         paid: 500,
         paymentMethod: 'card',
         cardAmount: 500,
-        paymentReference: 'PYTM-20260817-889134',
-        paymentTerminal: 'EDC-01',
       );
 
-      expect(sale.paymentReference, 'PYTM-20260817-889134');
+      expect(sale.paymentMethod, 'card');
+      expect(sale.cardAmount, 500);
 
       final reloaded = RetailStore(db);
       await reloaded.refresh();
-      expect(reloaded.sales.single.paymentReference, 'PYTM-20260817-889134');
-      expect(reloaded.sales.single.paymentTerminal, 'EDC-01');
+      expect(reloaded.sales.single.paymentMethod, 'card');
+      expect(reloaded.sales.single.cardAmount, 500);
+      expect(reloaded.sales.single.cashAmount, 0);
     });
 
-    test('a cash sale carries no reference', () async {
+    test('a cash sale records the cash and nothing else', () async {
       store.addToCart(dupatta());
 
       final sale = await store.checkout(paid: 500, cashAmount: 500);
 
-      expect(sale.paymentReference, isNull);
+      expect(sale.paymentMethod, 'cash');
+      expect(sale.cashAmount, 500);
+      expect(sale.cardAmount, 0);
+      expect(sale.upiAmount, 0);
     });
   });
 }

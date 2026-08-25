@@ -1,6 +1,5 @@
 import 'package:classy_closet/app/di/injection.dart';
 import 'package:classy_closet/core/database/app_database.dart';
-import 'package:classy_closet/core/services/pos_terminal.dart';
 import 'package:classy_closet/core/services/printer_service.dart';
 import 'package:classy_closet/core/services/retail_store.dart';
 import 'package:classy_closet/features/pos/data/repositories/pos_repository.dart';
@@ -24,9 +23,6 @@ void main() {
     // itself unsupported keeps the widget test off the Windows plugin channel.
     getIt.registerSingleton<PrinterService>(
       PrinterService(transport: const UnsupportedRawPrinterTransport()),
-    );
-    getIt.registerSingleton<PosTerminalService>(
-      PosTerminalService(transport: const UnsupportedPosTerminalTransport()),
     );
 
     await store.initialize();
@@ -119,19 +115,19 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('cash needs no transaction reference, card does', (tester) async {
+  testWidgets('no bill asks for a transaction reference', (tester) async {
     await pumpPos(tester);
     await tester.tap(tileFor('Cotton Shirt'));
     await tester.pumpAndSettle();
 
-    expect(fieldLabelled('Transaction reference (optional)'), findsNothing);
+    expect(fieldLabelled('Transaction reference'), findsNothing);
 
     await tester.tap(find.text('Card'));
     await tester.pumpAndSettle();
 
-    // With no machine set up the cashier copies the reference off the slip.
-    // With one, this box is replaced by the machine's own status.
-    expect(fieldLabelled('Transaction reference (optional)'), findsOneWidget);
+    // Still nothing to type on a card sale: the shop settles on its own
+    // machine and the app only records which rail the money came down.
+    expect(fieldLabelled('Transaction reference'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

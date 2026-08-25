@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/di/injection.dart';
 import '../../../core/services/escpos.dart';
-import '../../../core/services/pos_terminal.dart';
 import '../../../core/services/printer_service.dart';
 import '../../../core/services/retail_store.dart';
 import '../../../core/theme/app_colors.dart';
@@ -27,14 +26,9 @@ class HardwarePage extends StatefulWidget {
 class _HardwarePageState extends State<HardwarePage> {
   final _store = getIt<RetailStore>();
   final _printer = getIt<PrinterService>();
-  final _terminal = getIt<PosTerminalService>();
 
   final _scanField = TextEditingController();
   final _scanFocus = FocusNode();
-  final _terminalHost = TextEditingController();
-  final _terminalPort = TextEditingController();
-  final _terminalMid = TextEditingController();
-  final _terminalTid = TextEditingController();
 
   List<String> _printers = const [];
   bool _looking = true;
@@ -48,21 +42,12 @@ class _HardwarePageState extends State<HardwarePage> {
   void initState() {
     super.initState();
     _findPrinters();
-    final terminal = _store.posTerminalSettings;
-    _terminalHost.text = terminal.host;
-    _terminalPort.text = terminal.port.toString();
-    _terminalMid.text = terminal.merchantId;
-    _terminalTid.text = terminal.terminalId;
   }
 
   @override
   void dispose() {
     _scanField.dispose();
     _scanFocus.dispose();
-    _terminalHost.dispose();
-    _terminalPort.dispose();
-    _terminalMid.dispose();
-    _terminalTid.dispose();
     super.dispose();
   }
 
@@ -115,8 +100,6 @@ class _HardwarePageState extends State<HardwarePage> {
                 const SizedBox(height: AppSpacing.base),
                 _receiptPrinterCard(context),
                 const SizedBox(height: AppSpacing.base),
-                _cardMachineCard(context),
-                const SizedBox(height: AppSpacing.base),
                 _drawerCard(context),
                 const SizedBox(height: AppSpacing.base),
                 _labelPrinterCard(context),
@@ -136,7 +119,6 @@ class _HardwarePageState extends State<HardwarePage> {
   /// below — but the assistant sees at a glance whether every slot is set.
   Widget _assignmentSummary(BuildContext context) {
     final printer = _settings;
-    final terminal = _store.posTerminalSettings;
     final billName = (printer.printerName ?? '').trim();
     final labelName = (printer.labelPrinterName ?? '').trim();
     return SectionCard(
@@ -181,20 +163,6 @@ class _HardwarePageState extends State<HardwarePage> {
             hint:
                 'Any USB or Bluetooth scanner works — it behaves as a '
                 'keyboard. Test one below.',
-          ),
-          _assignmentRow(
-            icon: Icons.credit_card_rounded,
-            role: 'Card machine (POS)',
-            value: terminal.isConfigured
-                ? '${terminal.host}:${terminal.port}'
-                      '${terminal.terminalId.isEmpty ? '' : ' · TID ${terminal.terminalId}'}'
-                : 'Not connected — reference typed by hand',
-            ok: terminal.isConfigured,
-            hint: terminal.isConfigured
-                ? 'Checkout pushes the amount at the machine and stamps the '
-                      'bill with the bank reference automatically.'
-                : 'Add the terminal under "Card machine (Paytm POS)" and the '
-                      'till will drive it on every card or UPI sale.',
           ),
           if (printer.openDrawerOnCashSale)
             _assignmentRow(
@@ -722,120 +690,6 @@ class _HardwarePageState extends State<HardwarePage> {
 
   // -------------------------------------------------------- the card machine
 
-  /// The Paytm terminal, and whether the till can reach it.
-  ///
-  /// Once this is filled in, taking a card or a UPI payment stops being three
-  /// separate jobs — punch the amount into the machine, wait, copy the
-  /// reference onto the bill — and becomes one press of Checkout.
-  Widget _cardMachineCard(BuildContext context) {
-    final theme = Theme.of(context);
-    final settings = _store.posTerminalSettings;
-    return SectionCard(
-      title: 'Card machine (Paytm POS)',
-      icon: Icons.point_of_sale_rounded,
-      subtitle:
-          'The counter sends the bill total to the machine, the customer taps '
-          'or scans, and the reference comes back onto the bill by itself.',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _statusRow(
-            context,
-            ok: settings.isConfigured,
-            okText:
-                'Set up at ${settings.host}:${settings.port} · '
-                'TID ${settings.terminalId}',
-            badText:
-                'Not set up. Card and UPI bills need the reference typed in '
-                'by hand until it is.',
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          _toggle(
-            'Send payments to the machine',
-            settings.enabled,
-            (v) => _saveTerminal((c) => c.copyWith(enabled: v)),
-          ),
-          const SizedBox(height: AppSpacing.base),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                flex: 3,
-                child: TextField(
-                  controller: _terminalHost,
-                  decoration: const InputDecoration(
-                    labelText: 'Machine address',
-                    hintText: '192.168.1.50',
-                    helperText: "The terminal's IP on the shop's wi-fi.",
-                  ),
-                  onSubmitted: (_) => _applyTerminalFields(),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.base),
-              Expanded(
-                child: TextField(
-                  controller: _terminalPort,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Port'),
-                  onSubmitted: (_) => _applyTerminalFields(),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.base),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _terminalMid,
-                  decoration: const InputDecoration(
-                    labelText: 'Merchant ID (MID)',
-                  ),
-                  onSubmitted: (_) => _applyTerminalFields(),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.base),
-              Expanded(
-                child: TextField(
-                  controller: _terminalTid,
-                  decoration: const InputDecoration(
-                    labelText: 'Terminal ID (TID)',
-                  ),
-                  onSubmitted: (_) => _applyTerminalFields(),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.base),
-          Text(
-            'MID and TID are printed on the machine and on the Paytm '
-            'agreement. The counter PC and the machine have to be on the same '
-            'network.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: AppColors.inkSoft,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          Row(
-            children: [
-              SecondaryButton(
-                label: 'Save',
-                icon: Icons.save_outlined,
-                onPressed: _applyTerminalFields,
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              SecondaryButton(
-                label: 'Test the machine',
-                icon: Icons.wifi_tethering_rounded,
-                onPressed: settings.isConfigured ? _testTerminal : null,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   // ------------------------------------------------------------- fragments
 
   Widget _statusRow(
@@ -907,53 +761,6 @@ class _HardwarePageState extends State<HardwarePage> {
     // would be dropped along with it.
     _pendingSave = next.catchError((_) {});
     return next;
-  }
-
-  /// Chained the same way as the printer settings, and for the same reason.
-  Future<void> _pendingTerminalSave = Future.value();
-
-  Future<void> _saveTerminal(
-    PosTerminalSettings Function(PosTerminalSettings current) change,
-  ) {
-    final next = _pendingTerminalSave.then(
-      (_) => _store.savePosTerminalSettings(change(_store.posTerminalSettings)),
-    );
-    _pendingTerminalSave = next.catchError((_) {});
-    return next;
-  }
-
-  Future<void> _applyTerminalFields() async {
-    await _saveTerminal(
-      (current) => current.copyWith(
-        host: _terminalHost.text.trim(),
-        port: int.tryParse(_terminalPort.text.trim()) ?? current.port,
-        merchantId: _terminalMid.text.trim(),
-        terminalId: _terminalTid.text.trim(),
-      ),
-    );
-    if (!mounted) return;
-    _terminalPort.text = _store.posTerminalSettings.port.toString();
-    _toast('Card machine settings saved.', true);
-  }
-
-  /// Charges one rupee to prove the machine answers, then tells the shop what
-  /// happened. A rupee rather than nothing because a terminal will refuse a
-  /// zero-value order outright, which proves nothing about the connection.
-  Future<void> _testTerminal() async {
-    _toast('Sent Rs 1 to the machine — finish or cancel it there.', true);
-    final result = await _terminal.collect(
-      settings: _store.posTerminalSettings,
-      amount: 1,
-      reference: 'TEST-${DateTime.now().millisecondsSinceEpoch % 100000}',
-      tender: PosTenderKind.card,
-    );
-    if (!mounted) return;
-    _toast(
-      result.outcome == PosTerminalOutcome.unreachable
-          ? result.message
-          : 'The machine answered: ${result.message}',
-      result.outcome != PosTerminalOutcome.unreachable,
-    );
   }
 
   Future<void> _testPrint() async {
