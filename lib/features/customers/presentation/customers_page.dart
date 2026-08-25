@@ -22,12 +22,35 @@ class CustomersPage extends StatefulWidget {
   State<CustomersPage> createState() => _CustomersPageState();
 }
 
+/// How the ledger is ordered. Retail software usually defaults to the
+/// alphabetical list, but the question a shopkeeper actually asks is "who are
+/// my best customers" — so the spend orderings are first-class picks here
+/// rather than something to work out from a report.
+enum _Sort {
+  spendHigh('Highest spend'),
+  spendLow('Lowest spend'),
+  recent('Most recent visit'),
+  owing('Most owed'),
+  name('Name (A–Z)');
+
+  const _Sort(this.label);
+  final String label;
+}
+
 class _CustomersPageState extends State<CustomersPage> {
   final _store = getIt<RetailStore>();
-  final _search = TextEditingController();
+  late final TextEditingController _search;
 
   /// Show only the accounts with money still on them.
   bool _owingOnly = false;
+  _Sort _sort = _Sort.spendHigh;
+
+  @override
+  void initState() {
+    super.initState();
+    // Seeded from the top-bar search when the shopkeeper searched from there.
+    _search = TextEditingController(text: _store.consumePendingGlobalQuery());
+  }
 
   @override
   void dispose() {
@@ -49,6 +72,19 @@ class _CustomersPageState extends State<CustomersPage> {
             )
             .where((c) => !_owingOnly || c.balance > 0)
             .toList();
+        rows.sort(
+          (a, b) => switch (_sort) {
+            _Sort.spendHigh => b.lifetimeSpend.compareTo(a.lifetimeSpend),
+            _Sort.spendLow => a.lifetimeSpend.compareTo(b.lifetimeSpend),
+            // Never-visited accounts sort last rather than first, which is what
+            // "most recent" means to someone reading the list top-down.
+            _Sort.recent => (b.lastPurchaseAt ?? DateTime(1900)).compareTo(
+              a.lastPurchaseAt ?? DateTime(1900),
+            ),
+            _Sort.owing => b.balance.compareTo(a.balance),
+            _Sort.name => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          },
+        );
         final owed = all.fold(
           0.0,
           (sum, c) => sum + (c.balance > 0 ? c.balance : 0),
@@ -120,6 +156,23 @@ class _CustomersPageState extends State<CustomersPage> {
                     'Click a name to edit it, or use the buttons on the right '
                     'to take a payment or print a statement.',
                 actions: [
+                  SizedBox(
+                    width: 190,
+                    child: DropdownButtonFormField<_Sort>(
+                      initialValue: _sort,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        prefixIcon: Icon(Icons.sort_rounded, size: 17),
+                      ),
+                      items: [
+                        for (final s in _Sort.values)
+                          DropdownMenuItem(value: s, child: Text(s.label)),
+                      ],
+                      onChanged: (v) => setState(() => _sort = v ?? _sort),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
                   SizedBox(
                     width: 260,
                     child: TextField(

@@ -8,6 +8,7 @@ import '../../../../core/services/reports.dart';
 import '../../../../core/services/retail_store.dart';
 import '../../../../core/services/statements.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../pos/presentation/widgets/bill_preview_dialog.dart';
 import '../../data/statement_document.dart';
 
 /// Shows a party's account over a period, and gets it onto paper or into a
@@ -175,7 +176,23 @@ class _StatementDialogState extends State<StatementDialog> {
                   DataRow(
                     cells: [
                       DataCell(Text(AppFormatters.date(line.date))),
-                      DataCell(Text(line.reference)),
+                      // A sale reference opens the bill it belongs to. Payment
+                      // vouchers (RCP/…, PMT/…) have no bill behind them, so
+                      // they stay plain text rather than offering a dead tap.
+                      DataCell(
+                        _isBillReference(line.reference)
+                            ? Text(
+                                line.reference,
+                                style: const TextStyle(
+                                  decoration: TextDecoration.underline,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              )
+                            : Text(line.reference),
+                        onTap: _isBillReference(line.reference)
+                            ? () => _openBill(line.reference)
+                            : null,
+                      ),
                       DataCell(Text(line.description)),
                       DataCell(
                         Text(
@@ -210,6 +227,37 @@ class _StatementDialogState extends State<StatementDialog> {
           ],
         ),
       ],
+    );
+  }
+
+  /// Vouchers created by [RetailStore.recordPartyPayment] are prefixed RCP or
+  /// PMT; everything else on a customer statement is a bill or a credit note,
+  /// and only the bills resolve to a printable invoice.
+  bool _isBillReference(String reference) {
+    final r = reference.trim().toUpperCase();
+    if (r.isEmpty) return false;
+    return !r.startsWith('RCP/') &&
+        !r.startsWith('PMT/') &&
+        !r.startsWith('RET/') &&
+        !r.startsWith('CRN/');
+  }
+
+  Future<void> _openBill(String reference) async {
+    final invoice = await widget.store.loadInvoiceForReceipt(reference);
+    if (!mounted) return;
+    if (invoice == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No bill found for $reference.')));
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (_) => BillPreviewDialog(
+        invoice: invoice,
+        settings: widget.store.printerSettings,
+        onPrint: null,
+      ),
     );
   }
 

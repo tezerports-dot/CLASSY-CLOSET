@@ -13,6 +13,7 @@ import 'widgets/brand_look_form.dart';
 import 'widgets/change_password_form.dart';
 import 'widgets/gst_settings_form.dart';
 import 'widgets/printer_settings_form.dart';
+import 'widgets/reset_data_panel.dart';
 import 'widgets/store_profile_form.dart';
 
 /// Everything about this shop that is not a sale.
@@ -33,7 +34,8 @@ enum _Tab {
   tax('GST', Icons.percent_rounded),
   printing('Printing', Icons.print_outlined),
   account('Your account', Icons.lock_outline_rounded),
-  data('Backup', Icons.save_outlined);
+  data('Backup', Icons.save_outlined),
+  reset('Reset', Icons.restart_alt_rounded);
 
   const _Tab(this.label, this.icon);
   final String label;
@@ -146,6 +148,17 @@ class _SettingsPageState extends State<SettingsPage> {
                       'Change the password for the account you are signed in '
                       'as. Staff accounts are managed under Staff.',
                   child: ChangePasswordForm(store: _store),
+                ),
+                _Tab.reset => SectionCard(
+                  title: 'Reset the shop data',
+                  subtitle:
+                      'Clears the practice bills rung up while learning the '
+                      'till, so the shop opens on a clean ledger. Your '
+                      'catalogue, staff and settings are kept.',
+                  child: ResetDataPanel(
+                    store: _store,
+                    onDone: () => _toast('Shop data reset.'),
+                  ),
                 ),
                 _Tab.data => SectionCard(
                   title: 'Backup and restore',

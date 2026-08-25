@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../database/app_database.dart';
+import '../../features/pos/data/invoice_document.dart';
 import '../theme/app_colors.dart';
 import '../theme/brand_theme.dart';
 import '../utils/formatters.dart';
@@ -586,6 +587,22 @@ class RetailStore extends ChangeNotifier {
   final auditLogs = <String>[];
   final _styleRows = <ProductStyleRow>[];
   bool _initialized = false;
+
+  /// Text just typed into the top-bar global search. Pages initialise their
+  /// own search field from it and clear it — one-shot handoff so back-and-
+  /// forth navigation does not keep re-seeding stale queries.
+  String _pendingGlobalQuery = '';
+  String get pendingGlobalQuery => _pendingGlobalQuery;
+  void setPendingGlobalQuery(String query) {
+    _pendingGlobalQuery = query;
+    notifyListeners();
+  }
+
+  String consumePendingGlobalQuery() {
+    final q = _pendingGlobalQuery;
+    _pendingGlobalQuery = '';
+    return q;
+  }
 
   bool get isAuthenticated => currentUser != null;
   bool get hasStoreProfile =>
@@ -3950,6 +3967,189 @@ class RetailStore extends ChangeNotifier {
             payloadJson: Value(jsonEncode({'message': message})),
           ),
         );
+  }
+
+  /// Reconstructs the printable invoice for a past sale, so a bill can be
+  /// re-opened from the bills list or a statement row and re-printed.
+  ///
+  /// The line rows keep their own taxable value and tax at sale time; a
+  /// product renamed since still resolves to a friendly description via a
+  /// small batched name lookup rather than a query per line.
+  Future<InvoiceData?> loadInvoiceForReceipt(String receipt) async {
+    final row = await (_db.select(
+      _db.sales,
+    )..where((s) => s.receiptNumber.equals(receipt.trim()))).getSingleOrNull();
+    if (row == null) return null;
+    final items = await (_db.select(
+      _db.saleItems,
+    )..where((i) => i.saleId.equals(row.id))).get();
+    final productIds = {for (final i in items) i.productId};
+    final products = productIds.isEmpty
+        ? const <int, ProductRow>{}
+        : {
+            for (final p in await (_db.select(
+              _db.products,
+            )..where((p) => p.id.isIn(productIds))).get())
+              p.id: p,
+          };
+    final customerRow = row.customerId == null
+        ? null
+        : await (_db.select(
+            _db.customers,
+          )..where((c) => c.id.equals(row.customerId!))).getSingleOrNull();
+
+    String label(int id) {
+      final p = products[id];
+      if (p == null) return 'Removed product';
+      final v = [
+        (p.color ?? '').trim(),
+        (p.size ?? '').trim(),
+      ].where((s) => s.isNotEmpty).join(' / ');
+      return v.isEmpty ? p.name : '${p.name} ($v)';
+    }
+
+    final interState = (row.igstTotal) > 0;
+    final lines = <InvoiceLine>[
+      for (final i in items)
+        InvoiceLine(
+          description: label(i.productId),
+          hsnCode: i.hsnCode ?? '',
+          quantity: i.quantity.toInt(),
+          unitPrice: i.unitPrice,
+          discount: i.discountAmount,
+          taxableValue: i.taxableValue,
+          taxRate: i.taxRate,
+          cgst: interState ? 0 : i.taxAmount / 2,
+          sgst: interState ? 0 : i.taxAmount / 2,
+          igst: interState ? i.taxAmount : 0,
+          lineTotal: i.lineTotal,
+        ),
+    ];
+
+    final sale = SaleRecord(
+      receipt: row.receiptNumber,
+      customerName: customerRow?.name ?? 'Walk-in',
+      total: row.grandTotal,
+      profit: 0,
+      createdAt: row.soldAt,
+      taxableValue: row.subtotal,
+      cgst: row.cgstTotal,
+      sgst: row.sgstTotal,
+      igst: row.igstTotal,
+      discountTotal: row.discountTotal,
+      paymentMethod: row.paymentMethod,
+      cashAmount: row.cashAmount,
+      cardAmount: row.cardAmount,
+      upiAmount: row.upiAmount,
+      customerGstin: row.customerGstin,
+      placeOfSupply: row.placeOfSupply,
+      paymentReference: row.paymentReference,
+      paymentTerminal: row.paymentTerminal,
+    );
+
+    final paymentLabel = switch (row.paymentMethod) {
+      'cash' => 'Paid by cash',
+      'card' => 'Paid by card',
+      'upi' => 'Paid by UPI',
+      'split' =>
+        'Split: cash ${AppFormatters.currency(row.cashAmount)}, '
+            'card ${AppFormatters.currency(row.cardAmount)}, '
+            'UPI ${AppFormatters.currency(row.upiAmount)}',
+      _ => 'Paid',
+    };
+
+    return InvoiceData(
+      sale: sale,
+      lines: lines,
+      profile: storeProfile,
+      paid: row.paidAmount,
+      change: 0,
+      paymentLabel: paymentLabel,
+      customerName: customerRow?.name,
+      customerPhone: customerRow?.phone,
+      customerAddress: customerRow?.address,
+    );
+  }
+
+  /// Wipes the shop's trading history, leaving the setup behind.
+  ///
+  /// This is the "we were testing, now we are opening" button. It clears
+  /// bills, returns, deliveries, expenses, payments, till sessions, held
+  /// bills, stock movements and the audit log, and puts every product's stock
+  /// back to zero — but keeps the catalogue, the customers, the suppliers,
+  /// the staff accounts and everything under Settings, because typing those
+  /// in again is the part nobody wants to repeat.
+  ///
+  /// [alsoParties] additionally clears customers and suppliers, for a shop
+  /// that entered fake ones while testing. [alsoCatalogue] clears the products
+  /// and designs too, which is as close to a factory reset as this gets while
+  /// still keeping the shop profile and the login.
+  ///
+  /// The invoice counter is reset so the first real bill is number one.
+  Future<void> resetTradingData({
+    bool alsoParties = false,
+    bool alsoCatalogue = false,
+  }) async {
+    await _db.transaction(() async {
+      // Children before parents: foreign keys are on.
+      await _db.delete(_db.saleItems).go();
+      await _db.delete(_db.returnItems).go();
+      await _db.delete(_db.returns).go();
+      await _db.delete(_db.sales).go();
+      await _db.delete(_db.purchaseItems).go();
+      await _db.delete(_db.purchases).go();
+      await _db.delete(_db.heldBillItems).go();
+      await _db.delete(_db.heldBills).go();
+      await _db.delete(_db.cashMovements).go();
+      await _db.delete(_db.shifts).go();
+      await _db.delete(_db.partyPayments).go();
+      await _db.delete(_db.expenses).go();
+      await _db.delete(_db.inventoryMovements).go();
+      await _db.delete(_db.ledgerEntries).go();
+      await _db.delete(_db.cashBook).go();
+      await _db.delete(_db.bankBook).go();
+      await _db.delete(_db.auditLogs).go();
+
+      // Balances are derived from the rows just deleted, so they go to zero
+      // rather than being left quoting money nobody owes any more.
+      await _db
+          .update(_db.customers)
+          .write(const CustomersCompanion(currentBalance: Value(0)));
+      await _db
+          .update(_db.suppliers)
+          .write(const SuppliersCompanion(currentBalance: Value(0)));
+      await _db
+          .update(_db.products)
+          .write(const ProductsCompanion(currentStock: Value(0)));
+
+      if (alsoCatalogue) {
+        await _db.delete(_db.productImages).go();
+        await _db.delete(_db.products).go();
+        await _db.delete(_db.productStyles).go();
+      }
+      if (alsoParties) {
+        await _db.delete(_db.customers).go();
+        await _db.delete(_db.suppliers).go();
+      }
+
+      // Start the numbering over, so the first real bill is 0001.
+      await (_db.delete(
+        _db.settings,
+      )..where((s) => s.key.equals(invoiceCounterKey))).go();
+    });
+
+    cart.clear();
+    _billDiscount = 0;
+    await refresh();
+    await _audit(
+      'DELETE',
+      'settings',
+      null,
+      'Reset trading data'
+          '${alsoParties ? ' + customers/suppliers' : ''}'
+          '${alsoCatalogue ? ' + catalogue' : ''}',
+    );
+    notifyListeners();
   }
 
   Future<Directory> _appDataDirectory() async {

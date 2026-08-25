@@ -389,7 +389,7 @@ class _TopBar extends StatelessWidget {
               onPressed: () => Scaffold.of(context).openDrawer(),
               icon: const Icon(Icons.menu),
             ),
-          const Expanded(child: _GlobalSearch()),
+          Expanded(child: _GlobalSearch(store: store)),
           const SizedBox(width: AppSpacing.xl),
           if (shift != null && MediaQuery.sizeOf(context).width >= 640)
             _TillChip(
@@ -402,53 +402,87 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-class _GlobalSearch extends StatelessWidget {
-  const _GlobalSearch();
+/// A live search that lands where the query is most likely to be useful.
+///
+/// A query shaped like an invoice number goes to Bills; anything with letters
+/// and no obvious invoice shape goes to Customers when the shop has any, and
+/// Products otherwise. The chosen destination reads the query from the store
+/// and clears it so back-and-forth navigation does not keep re-seeding the
+/// same string.
+class _GlobalSearch extends StatefulWidget {
+  const _GlobalSearch({required this.store});
+
+  final RetailStore store;
+
+  @override
+  State<_GlobalSearch> createState() => _GlobalSearchState();
+}
+
+class _GlobalSearchState extends State<_GlobalSearch> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => Align(
     alignment: Alignment.centerLeft,
-    child: Container(
+    child: SizedBox(
       width: 380,
       height: 36,
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
-        border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(AppRadii.input),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.search, size: 16, color: AppColors.inkFaint),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Text(
-              'Search products, bills, customers…',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: AppColors.inkFaint),
-              overflow: TextOverflow.ellipsis,
-            ),
+      child: TextField(
+        controller: _controller,
+        onSubmitted: _submit,
+        decoration: InputDecoration(
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.base,
+            vertical: AppSpacing.sm,
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              border: Border.all(color: AppColors.border),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(
-              'Ctrl K',
-              style: AppTypography.code.copyWith(
-                fontSize: 10,
-                color: AppColors.inkFaint,
-              ),
-            ),
+          filled: true,
+          fillColor: AppColors.surfaceAlt,
+          hintText: 'Search products, bills, customers…',
+          hintStyle: const TextStyle(color: AppColors.inkFaint, fontSize: 13),
+          prefixIcon: const Icon(
+            Icons.search,
+            size: 16,
+            color: AppColors.inkFaint,
           ),
-        ],
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(AppRadii.input),
+            borderSide: const BorderSide(color: AppColors.border),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(AppRadii.input),
+            borderSide: const BorderSide(color: AppColors.border),
+          ),
+        ),
       ),
     ),
   );
+
+  void _submit(String raw) {
+    final query = raw.trim();
+    if (query.isEmpty) return;
+    widget.store.setPendingGlobalQuery(query);
+
+    // Invoice-looking queries land on Bills; everything else on Customers when
+    // the shop keeps any, Products otherwise. Same rules as the pages'
+    // own quick-search behaviour, so the result is where the shopkeeper
+    // would have gone by hand.
+    final looksLikeInvoice =
+        query.contains('/') ||
+        RegExp(r'^[A-Za-z]{1,4}\d').hasMatch(query) ||
+        query.toUpperCase().startsWith('INV');
+    final destination = looksLikeInvoice
+        ? '/sales'
+        : (widget.store.customers.isNotEmpty ? '/customers' : '/products');
+    context.go(destination);
+    _controller.clear();
+  }
 }
 
 class _TillChip extends StatelessWidget {
@@ -512,6 +546,7 @@ const navItems = <NavEntry>[
     '/pos',
     Permission.sellAtPos,
   ),
+  NavEntry(Icons.receipt_rounded, 'Bills', '/sales', Permission.sellAtPos),
   NavEntry(
     Icons.checkroom_rounded,
     'Products',
