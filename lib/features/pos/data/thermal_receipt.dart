@@ -24,7 +24,10 @@ Uint8List buildThermalReceipt({
   ReceiptLogo? logo,
 }) {
   final paper = settings.paper;
-  final builder = EscPosBuilder(paper: paper);
+  final builder = EscPosBuilder(
+    paper: paper,
+    columns: settings.charactersPerLine,
+  );
   final profile = data.profile;
   final sale = data.sale;
 
@@ -67,17 +70,20 @@ Uint8List buildThermalReceipt({
     ..rule();
 
   // ------------------------------------------------------------ bill header
+  // Centred, one phrase per line. Pushed to opposite edges these left a
+  // corridor of white down the middle of the heading, which on an 80 mm roll
+  // reads as a table with nothing in it.
   builder
-    ..columns2('Invoice', sale.receipt)
-    ..columns2('Date', AppFormatters.dateTime(sale.createdAt));
+    ..centeredPair('Invoice', sale.receipt)
+    ..centeredPair('Date', AppFormatters.dateTime(sale.createdAt));
   final customer = data.customerName?.trim() ?? '';
-  if (customer.isNotEmpty) builder.columns2('Customer', customer);
+  if (customer.isNotEmpty) builder.centeredPair('Customer', customer);
   final customerPhone = data.customerPhone?.trim() ?? '';
-  if (customerPhone.isNotEmpty) builder.columns2('Phone', customerPhone);
+  if (customerPhone.isNotEmpty) builder.centeredPair('Phone', customerPhone);
   final buyerGstin = sale.customerGstin?.trim() ?? '';
-  if (buyerGstin.isNotEmpty) builder.columns2('Buyer GSTIN', buyerGstin);
+  if (buyerGstin.isNotEmpty) builder.centeredPair('Buyer GSTIN', buyerGstin);
   if (data.isTaxInvoice && (sale.placeOfSupply ?? '').isNotEmpty) {
-    builder.columns2('Place of supply', sale.placeOfSupply!);
+    builder.centeredPair('Place of supply', sale.placeOfSupply!);
   }
   builder.rule();
 
@@ -108,11 +114,13 @@ Uint8List buildThermalReceipt({
     (sum, line) => sum + line.lineTotal,
   );
 
+  final inset = _totalsInset(builder.columns);
   builder
     ..rule()
     ..columns2(
       'Items ${AppFormatters.quantity(data.totalQuantity)}',
       AppFormatters.amount(grossSubtotal),
+      inset: inset,
     );
 
   // ------------------------------------------------------------------ taxes
@@ -120,46 +128,84 @@ Uint8List buildThermalReceipt({
     builder.columns2(
       'Discount',
       '-${AppFormatters.amount(sale.discountTotal)}',
+      inset: inset,
     );
   }
   if (data.isTaxInvoice && sale.taxTotal > 0) {
-    builder.columns2('Taxable value', AppFormatters.amount(sale.taxableValue));
+    builder.columns2(
+      'Taxable value',
+      AppFormatters.amount(sale.taxableValue),
+      inset: inset,
+    );
     for (final entry in _taxByRate(data).entries) {
       final rate = AppFormatters.quantity(entry.key);
       if (sale.isInterState) {
-        builder.columns2('IGST $rate%', AppFormatters.amount(entry.value.igst));
+        builder.columns2(
+          'IGST $rate%',
+          AppFormatters.amount(entry.value.igst),
+          inset: inset,
+        );
       } else {
         final half = AppFormatters.quantity(entry.key / 2);
         builder
-          ..columns2('CGST $half%', AppFormatters.amount(entry.value.cgst))
-          ..columns2('SGST $half%', AppFormatters.amount(entry.value.sgst));
+          ..columns2(
+            'CGST $half%',
+            AppFormatters.amount(entry.value.cgst),
+            inset: inset,
+          )
+          ..columns2(
+            'SGST $half%',
+            AppFormatters.amount(entry.value.sgst),
+            inset: inset,
+          );
       }
     }
   }
 
   builder
     ..rule()
-    ..columns2('TOTAL', AppFormatters.amount(sale.total), bold: true)
+    ..columns2(
+      'TOTAL',
+      AppFormatters.amount(sale.total),
+      bold: true,
+      inset: inset,
+    )
     ..rule();
 
   // --------------------------------------------------------------- payment
-  builder.columns2(data.paymentLabel, AppFormatters.amount(data.paid));
+  builder.columns2(
+    data.paymentLabel,
+    AppFormatters.amount(data.paid),
+    inset: inset,
+  );
   if (data.change > 0) {
-    builder.columns2('Change', AppFormatters.amount(data.change));
+    builder.columns2('Change', AppFormatters.amount(data.change), inset: inset);
   }
   if (sale.cashAmount > 0 && sale.cardAmount + sale.upiAmount > 0) {
     // Split tender: spell the parts out so the till reconciles at close.
-    builder.columns2('  Cash', AppFormatters.amount(sale.cashAmount));
+    builder.columns2(
+      '  Cash',
+      AppFormatters.amount(sale.cashAmount),
+      inset: inset,
+    );
     if (sale.cardAmount > 0) {
-      builder.columns2('  Card', AppFormatters.amount(sale.cardAmount));
+      builder.columns2(
+        '  Card',
+        AppFormatters.amount(sale.cardAmount),
+        inset: inset,
+      );
     }
     if (sale.upiAmount > 0) {
-      builder.columns2('  UPI', AppFormatters.amount(sale.upiAmount));
+      builder.columns2(
+        '  UPI',
+        AppFormatters.amount(sale.upiAmount),
+        inset: inset,
+      );
     }
   }
   builder
     ..feed()
-    ..line('${amountInWords(sale.total)} only');
+    ..line('${amountInWords(sale.total)} only', center: true);
 
   // --------------------------------------------------------------- footer
   final footer = profile?.receiptFooterText?.trim() ?? '';
@@ -212,6 +258,14 @@ Uint8List buildThermalReceipt({
 
   return builder.bytes();
 }
+
+/// How far to pull the totals block in from each edge.
+///
+/// A narrow roll has no room to spare, so it stays full width; a wide one gets
+/// a margin, because totals stretched across 80 mm read as two separate lists
+/// rather than one block. Proportional rather than fixed so an unusual column
+/// count lands somewhere sensible.
+int _totalsInset(int columns) => columns >= 40 ? (columns * 0.12).round() : 0;
 
 /// Tax totalled by rate, so a bill mixing 5% and 18% apparel shows one line per
 /// slab the way a GST invoice is expected to.

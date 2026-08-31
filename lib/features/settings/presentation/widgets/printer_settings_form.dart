@@ -51,6 +51,49 @@ class _PrinterSettingsFormState extends State<PrinterSettingsForm> {
     });
   }
 
+  /// How many characters the printer really fits on a line.
+  ///
+  /// The paper width is a good guess and not a rule: 80 mm heads are sold as
+  /// both 48-column and 42-column. Sending a 48-character line to a 42-column
+  /// printer does not truncate it — the printer wraps the tail, so the amount
+  /// on every total lands underneath its own label and the bill comes out as a
+  /// ragged list. Nothing in the app can detect the difference, so the shop
+  /// states it: print one bill, count the dashes in a divider line, put that
+  /// number here.
+  Widget _charactersPerLinePicker() {
+    final paper = _settings.paper;
+    final options = <int?>[null, 32, 42, 44, 48, 56, 64];
+    final current = options.contains(_settings.charactersPerLine)
+        ? _settings.charactersPerLine
+        : null;
+    return DropdownButtonFormField<int?>(
+      isExpanded: true,
+      initialValue: current,
+      decoration: const InputDecoration(
+        labelText: 'Characters per line',
+        helperText:
+            'Leave on the paper default unless amounts print on the line '
+            'below their label. Then print a bill, count the dashes in a '
+            'divider, and pick that number.',
+        helperMaxLines: 3,
+      ),
+      items: [
+        DropdownMenuItem(
+          value: null,
+          child: Text('Paper default (${paper.columns})'),
+        ),
+        for (final option in options.whereType<int>())
+          DropdownMenuItem(value: option, child: Text('$option characters')),
+      ],
+      onChanged: (value) => _update(
+        _settings.copyWith(
+          charactersPerLine: value,
+          clearCharactersPerLine: value == null,
+        ),
+      ),
+    );
+  }
+
   void _update(PrinterSettings next) => setState(() => _settings = next);
 
   @override
@@ -172,6 +215,8 @@ class _PrinterSettingsFormState extends State<PrinterSettingsForm> {
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          _charactersPerLinePicker(),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             value: _settings.cutAfterPrint,

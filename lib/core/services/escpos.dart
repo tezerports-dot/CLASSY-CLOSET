@@ -75,11 +75,26 @@ enum QrErrorCorrection {
 }
 
 class EscPosBuilder {
-  EscPosBuilder({this.paper = ThermalPaper.mm80}) {
+  EscPosBuilder({this.paper = ThermalPaper.mm80, int? columns})
+    : _columnsOverride = columns {
     _initialise();
   }
 
   final ThermalPaper paper;
+
+  /// What the shop measured on its own printer, when that is not what the
+  /// paper width implies.
+  final int? _columnsOverride;
+
+  /// Characters per line to lay out against.
+  ///
+  /// The paper width is a decent default and a poor rule. 80 mm heads are sold
+  /// as 48-column and as 42-column, and printing a 48-character line on a
+  /// 42-column head does not truncate it — the printer wraps the tail onto the
+  /// next line, so every amount drops underneath its own label and the bill
+  /// reads as a ragged list instead of two columns. Letting the shop state the
+  /// real number is the only fix that holds across printers.
+  int get columns => (_columnsOverride ?? paper.columns).clamp(20, 96);
   final _bytes = <int>[];
 
   static const _esc = 0x1B;
@@ -122,7 +137,7 @@ class EscPosBuilder {
     bool doubleHeight = false,
     bool doubleWidth = false,
   }) {
-    final width = doubleWidth ? paper.columns ~/ 2 : paper.columns;
+    final width = doubleWidth ? columns ~/ 2 : columns;
     _align(center ? 1 : (right ? 2 : 0));
     _emphasis(bold);
     _underline(underline);
@@ -145,7 +160,7 @@ class EscPosBuilder {
   void rule([String char = '-']) {
     _align(0);
     _bytes
-      ..addAll(encodeText(char * paper.columns))
+      ..addAll(encodeText(char * columns))
       ..add(_lf);
   }
 
@@ -153,14 +168,30 @@ class EscPosBuilder {
   ///
   /// When the two cannot both fit, the label is what gives way: the amount is
   /// the part a customer checks.
-  void columns2(String left, String right, {bool bold = false}) {
+  ///
+  /// [inset] pulls the pair in from both paper edges. Totals spread across the
+  /// full width of an 80 mm roll read as two lists that happen to share a page
+  /// rather than as a bill; a few characters of margin turns them back into one
+  /// centred block, with the money still aligned so the column can be added
+  /// downward.
+  void columns2(String left, String right, {bool bold = false, int inset = 0}) {
+    final pad = inset.clamp(0, (columns - 12) ~/ 2);
+    final inner = columns - pad * 2;
     row(
-      [left, right],
-      [paper.columns - right.length, right.length],
-      aligns: const [CellAlign.left, CellAlign.right],
+      [' ' * pad, left, right],
+      [pad, inner - right.length, right.length],
+      aligns: const [CellAlign.left, CellAlign.left, CellAlign.right],
       bold: bold,
     );
   }
+
+  /// A centred "Label: value" line, for the bill's heading block.
+  ///
+  /// The alternative — label hard left, value hard right — leaves a corridor of
+  /// white down the middle of every heading line, which on a wide roll reads as
+  /// an empty table.
+  void centeredPair(String label, String value) =>
+      line('$label: $value', center: true);
 
   /// A row of fixed-width cells. Widths must sum to at most the roll width;
   /// anything left over pads the last cell.
@@ -173,7 +204,7 @@ class EscPosBuilder {
     assert(cells.length == widths.length, 'one width per cell');
     final buffer = StringBuffer();
     for (var i = 0; i < cells.length; i++) {
-      final width = widths[i].clamp(0, paper.columns);
+      final width = widths[i].clamp(0, columns);
       if (width == 0) continue;
       final align = aligns == null || i >= aligns.length
           ? CellAlign.left
@@ -183,7 +214,7 @@ class EscPosBuilder {
     _align(0);
     _emphasis(bold);
     _bytes
-      ..addAll(encodeText(_clip(buffer.toString(), paper.columns)))
+      ..addAll(encodeText(_clip(buffer.toString(), columns)))
       ..add(_lf);
     _resetStyle();
   }

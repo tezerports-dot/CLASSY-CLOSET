@@ -30,6 +30,7 @@ class PrinterSettings {
     this.mode = ReceiptPrintMode.dialog,
     this.printerName,
     this.paper = ThermalPaper.mm80,
+    this.charactersPerLine,
     this.copies = 1,
     this.cutAfterPrint = true,
     this.openDrawerOnCashSale = false,
@@ -48,6 +49,20 @@ class PrinterSettings {
   /// Windows printer name. Null means "whatever Windows calls the default".
   final String? printerName;
   final ThermalPaper paper;
+
+  /// Characters the printer actually fits on one line, when that differs from
+  /// what the paper width implies.
+  ///
+  /// 80 mm printers ship as both 48-column and 42-column, and a 48-character
+  /// line sent to a 42-column head is wrapped rather than truncated: the tail
+  /// of every amount lands on the line below its label. Null means "trust the
+  /// paper width", which is right for most printers and wrong for enough of
+  /// them to be worth a setting.
+  final int? charactersPerLine;
+
+  /// What the layout should actually be built against.
+  int get effectiveColumns => charactersPerLine ?? paper.columns;
+
   final int copies;
   final bool cutAfterPrint;
 
@@ -96,6 +111,8 @@ class PrinterSettings {
     String? printerName,
     bool clearPrinterName = false,
     ThermalPaper? paper,
+    int? charactersPerLine,
+    bool clearCharactersPerLine = false,
     int? copies,
     bool? cutAfterPrint,
     bool? openDrawerOnCashSale,
@@ -112,6 +129,9 @@ class PrinterSettings {
     mode: mode ?? this.mode,
     printerName: clearPrinterName ? null : (printerName ?? this.printerName),
     paper: paper ?? this.paper,
+    charactersPerLine: clearCharactersPerLine
+        ? null
+        : (charactersPerLine ?? this.charactersPerLine),
     copies: copies ?? this.copies,
     cutAfterPrint: cutAfterPrint ?? this.cutAfterPrint,
     openDrawerOnCashSale: openDrawerOnCashSale ?? this.openDrawerOnCashSale,
@@ -132,6 +152,7 @@ class PrinterSettings {
     'mode': mode.name,
     'printerName': printerName,
     'paper': paper.name,
+    'charactersPerLine': charactersPerLine,
     'copies': copies,
     'cutAfterPrint': cutAfterPrint,
     'openDrawerOnCashSale': openDrawerOnCashSale,
@@ -155,6 +176,10 @@ class PrinterSettings {
             ? null
             : (json['printerName'] as String).trim(),
         paper: ThermalPaper.fromName(json['paper'] as String?),
+        charactersPerLine: switch (json['charactersPerLine']) {
+          final int v when v >= 20 && v <= 96 => v,
+          _ => null,
+        },
         copies: (json['copies'] as num?)?.toInt().clamp(1, 5) ?? 1,
         cutAfterPrint: json['cutAfterPrint'] as bool? ?? true,
         openDrawerOnCashSale: json['openDrawerOnCashSale'] as bool? ?? false,
